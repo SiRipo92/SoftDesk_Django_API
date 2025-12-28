@@ -1,6 +1,6 @@
 name: "Technical Task (SoftDesk Support)"
-description: "Tâche technique (CI, perf, sécurité, refacto, outillage)."
-title: "[TECH] <titre court>"
+description: "Tâche technique (CI, sécurité, perf, refacto, outillage)."
+title: "[TECH-XX] <titre court>"
 labels: ["type:tech"]
 body:
   - type: dropdown
@@ -16,22 +16,54 @@ body:
     validations:
       required: false
 
+  - type: input
+    id: tech_id
+    attributes:
+      label: Identifiant (TECH-XX)
+      description: "Ex: TECH-A, TECH-B… (utile pour dépendances / tracking)."
+      placeholder: "TECH-A"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexte / Problème
+      description: "Pourquoi cette tâche existe ? (contrainte école, bug, risque, dette tech…)"
+      placeholder: "Ex: L’école exige 'OAuth2' → clarifier doc + implémentation retenue."
+    validations:
+      required: false
+
   - type: textarea
     id: goal
     attributes:
       label: Objectif technique
-      placeholder: "Ex: Mettre en place GitHub Actions pour lint + pytest sur PR."
+      description: "Une phrase claire : résultat attendu."
+      placeholder: "Ex: Aligner l’auth avec l’exigence 'OAuth2' (doc + endpoints token + Bearer)."
     validations:
       required: true
+
+  - type: textarea
+    id: endpoints
+    attributes:
+      label: Endpoints / Surface API (si pertinent)
+      description: "Liste rapide des endpoints concernés (sinon laisser vide)."
+      placeholder: |
+        - POST /api/v1/auth/login/
+        - POST /api/v1/auth/refresh/
+        - GET /api/v1/users/me/
+    validations:
+      required: false
 
   - type: textarea
     id: scope
     attributes:
       label: Portée / fichiers impactés
       placeholder: |
-        - .github/workflows/ci.yml
-        - pyproject.toml
-        - pytest.ini
+        - config/settings.py
+        - config/urls.py
+        - apps/users/...
+        - postman/...
     validations:
       required: false
 
@@ -39,9 +71,13 @@ body:
     id: acceptance
     attributes:
       label: Critères d’acceptation
+      description: "Checklist vérifiable. Garde 3–7 points max (supprime ce qui ne s’applique pas)."
       value: |
-        - [ ] ...
-        - [ ] ...
+        - [ ] Le comportement attendu est vérifiable (commande / appel API / preuve).
+        - [ ] Tests ajoutés ou mis à jour et **passent** (pytest).
+        - [ ] Lint/format **OK** (ruff).
+        - [ ] Postman (collection/env) mis à jour si la surface API a changé.
+        - [ ] README / doc mise à jour si nécessaire.
     validations:
       required: true
 
@@ -73,3 +109,12 @@ body:
       placeholder: "1"
     validations:
       required: true
+
+  - type: input
+    id: dependencies
+    attributes:
+      label: Dépendances (optionnel)
+      description: "IDs bloquants (USxx, TECH-xx)."
+      placeholder: "US02, TECH-A"
+    validations:
+      required: false
