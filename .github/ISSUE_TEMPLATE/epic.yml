@@ -1,0 +1,55 @@
+name: "Epic"
+description: "Parent issue that groups user stories / technical tasks."
+title: "EPIC — "
+labels: ["epic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Epic (Parent)
+        Use this issue to group related User Stories / Technical Tasks as **sub-issues**.
+        The Epic should not contain implementation details—those go into the sub-issues.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: "Goal"
+      description: "What outcome does this epic deliver?"
+      placeholder: "Ex: Provide robust authentication + user account endpoints secured by JWT."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope (in)"
+      description: "What is included?"
+      placeholder: "- Login\n- Signup\n- /users/me\n- JWT refresh/logout"
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: "Out of scope"
+      description: "Explicit exclusions to avoid scope creep."
+      placeholder: "- Front-end UI\n- Social login\n- OAuth Authorization Code flow"
+    validations:
+      required: false
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: "Definition of Done (DoD)"
+      description: "How do you know this epic is complete?"
+      placeholder: "- All sub-issues Done\n- Postman tests updated\n- CI green on main"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: "Notes / Constraints"
+      placeholder: "School constraints, OWASP/RGPD rules, etc."
+    validations:
+      required: false
