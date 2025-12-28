@@ -1,0 +1,75 @@
+name: "Technical Task (SoftDesk Support)"
+description: "Tâche technique (CI, perf, sécurité, refacto, outillage)."
+title: "[TECH] <titre court>"
+labels: ["type:tech"]
+body:
+  - type: dropdown
+    id: epic
+    attributes:
+      label: Epic (si applicable)
+      options:
+        - "EPIC 1 – Authentification & comptes"
+        - "EPIC 2 – Projets & membership (contributors)"
+        - "EPIC 3 – Issues"
+        - "EPIC 4 – Commentaires"
+        - "EPIC 5 – Sécurité, conformité, optimisation & CI"
+    validations:
+      required: false
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Objectif technique
+      placeholder: "Ex: Mettre en place GitHub Actions pour lint + pytest sur PR."
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Portée / fichiers impactés
+      placeholder: |
+        - .github/workflows/ci.yml
+        - pyproject.toml
+        - pytest.ini
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critères d’acceptation
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priorité
+      options: ["P0", "P1", "P2"]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Taille (Sizing)
+      options:
+        - "XS (0.5 ½j)"
+        - "S (1 ½j)"
+        - "M (2 ½j)"
+        - "L (4 ½j)"
+        - "XL (6 ½j)"
+    validations:
+      required: true
+
+  - type: input
+    id: estimate_half_days
+    attributes:
+      label: Estimation (½j)
+      placeholder: "1"
+    validations:
+      required: true

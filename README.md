@@ -43,4 +43,4 @@ A Postman collection + environments will live in:
 
 - `apps/` : domain apps (users, projects, issues, comments)
 
-- `.github/workflows/ : CI pipeline
+- `.github/workflows/` : CI pipeline

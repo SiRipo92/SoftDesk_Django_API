@@ -1,0 +1,131 @@
+name: "User Story (SoftDesk Support)"
+description: "Créer une User Story avec critères testables (Given/When/Then) + sizing."
+title: "[USxx] <titre court>"
+labels: ["type:user-story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Format attendu
+        - Remplis la *User Story* + *Critères d’acceptation* (Given/When/Then).
+        - Renseigne *Epic / Priorité / Taille / Estimation (½j) / Dépendances*.
+
+  - type: dropdown
+    id: epic
+    attributes:
+      label: Epic
+      description: "Epic de rattachement (selon ton cahier)."
+      options:
+        - "EPIC 1 – Authentification & comptes"
+        - "EPIC 2 – Projets & membership (contributors)"
+        - "EPIC 3 – Issues"
+        - "EPIC 4 – Commentaires"
+        - "EPIC 5 – Sécurité, conformité, optimisation & CI"
+    validations:
+      required: true
+
+  - type: input
+    id: us_id
+    attributes:
+      label: Identifiant (USxx)
+      description: "Ex: US01, US12…"
+      placeholder: "US01"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objectif / Fonctionnalité
+      description: "Une phrase claire sur l’objectif métier."
+      placeholder: "Ex: Authentifier un utilisateur via JWT access/refresh."
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_story
+    attributes:
+      label: User Story
+      description: "Format: En tant que…, je veux…, afin de…"
+      placeholder: "En tant que …, je veux …, afin de …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critères d’acceptation (Given/When/Then)
+      description: "Scénarios testables. 1+ scénarios."
+      value: |
+        Scénario : ...
+        Étant donné que ...
+        Quand ...
+        Alors ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priorité
+      description: "P0 = critique MVP, P1 = important, P2 = confort."
+      options:
+        - "P0"
+        - "P1"
+        - "P2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Taille (Sizing)
+      description: "Selon ton référentiel (XS/S/M/L/XL)."
+      options:
+        - "XS (0.5 ½j)"
+        - "S (1 ½j)"
+        - "M (2 ½j)"
+        - "L (4 ½j)"
+        - "XL (6 ½j)"
+    validations:
+      required: true
+
+  - type: input
+    id: estimate_half_days
+    attributes:
+      label: Estimation (demi-journées)
+      description: "Nombre (ex: 0.5 / 1 / 2 / 4 / 6)."
+      placeholder: "2"
+    validations:
+      required: true
+
+  - type: input
+    id: dependencies
+    attributes:
+      label: Dépendances
+      description: "IDs des US bloquantes (ex: US02, US08…)."
+      placeholder: "US02, US08"
+    validations:
+      required: false
+
+  - type: textarea
+    id: api_surface
+    attributes:
+      label: Endpoints / Surface API (si pertinent)
+      description: "Liste rapide des endpoints impactés."
+      placeholder: |
+        - POST /api/v1/auth/login/
+        - POST /api/v1/auth/refresh/
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: Definition of Done
+      options:
+        - label: "Implémentation terminée"
+        - label: "Tests ajoutés (ou adaptés) et passent"
+        - label: "Lint OK (ruff)"
+        - label: "Postman: requêtes/collection à jour si nécessaire"
+        - label: "Documentation README mise à jour si nécessaire"
