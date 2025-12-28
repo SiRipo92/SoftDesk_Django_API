@@ -40,6 +40,7 @@ INSTALLED_APPS = [
 
     # Django default apps…
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
 
     # Specific apps to project
     "apps.users",
@@ -56,6 +57,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+}
+
+SIMPLE_JWT = {
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 MIDDLEWARE = [
@@ -98,6 +104,7 @@ DATABASES = {
     }
 }
 
+AUTH_USER_MODEL = "users.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
