@@ -67,20 +67,6 @@ body:
     validations:
       required: false
 
-  - type: textarea
-    id: acceptance
-    attributes:
-      label: Critères d’acceptation
-      description: "Checklist vérifiable. Garde 3–7 points max (supprime ce qui ne s’applique pas)."
-      value: |
-        - [ ] Le comportement attendu est vérifiable (commande / appel API / preuve).
-        - [ ] Tests ajoutés ou mis à jour et **passent** (pytest).
-        - [ ] Lint/format **OK** (ruff).
-        - [ ] Postman (collection/env) mis à jour si la surface API a changé.
-        - [ ] README / doc mise à jour si nécessaire.
-    validations:
-      required: true
-
   - type: dropdown
     id: priority
     attributes:
