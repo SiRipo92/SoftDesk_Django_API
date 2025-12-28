@@ -1,5 +1,5 @@
-name: "Epic"
-description: "Parent issue that groups user stories / technical tasks."
+name: "Epic (Parent)"
+description: "Issue parent qui regroupe des user stories / tâches techniques via des sous-issues."
 title: "EPIC — "
 labels: ["epic"]
 body:
@@ -7,49 +7,64 @@ body:
     attributes:
       value: |
         ## Epic (Parent)
-        Use this issue to group related User Stories / Technical Tasks as **sub-issues**.
-        The Epic should not contain implementation details—those go into the sub-issues.
+        Cette issue sert de **conteneur** pour regrouper des sous-issues (User Stories / Technical Tasks).
+        👉 Les détails d’implémentation et les critères fins vont dans les sous-issues.
+
+  - type: dropdown
+    id: epic_ref
+    attributes:
+      label: "Epic (référence)"
+      description: "Choisis l’Epic correspondant (doit matcher ton champ Epic dans GitHub Projects)."
+      options:
+        - "1 - Authentification & comptes"
+        - "2 - Projets & membership (contributors)"
+        - "3 - Issues"
+        - "4 - Commentaires"
+        - "5 - Sécurité, conformité, optimisation & CI"
+    validations:
+      required: true
 
   - type: textarea
     id: goal
     attributes:
-      label: "Goal"
-      description: "What outcome does this epic deliver?"
-      placeholder: "Ex: Provide robust authentication + user account endpoints secured by JWT."
+      label: "Objectif (Goal)"
+      description: "Quel résultat concret cet epic doit-il livrer ?"
+      placeholder: "Ex: Mettre en place l’authentification JWT + endpoints de compte utilisateur."
     validations:
       required: true
 
   - type: textarea
     id: scope
     attributes:
-      label: "Scope (in)"
-      description: "What is included?"
-      placeholder: "- Login\n- Signup\n- /users/me\n- JWT refresh/logout"
+      label: "Périmètre (Inclus)"
+      description: "Ce qui est inclus dans l’epic (liste)."
+      placeholder: "- Signup\n- Login JWT\n- /users/me\n- Refresh/logout"
     validations:
       required: true
 
   - type: textarea
     id: out_of_scope
     attributes:
-      label: "Out of scope"
-      description: "Explicit exclusions to avoid scope creep."
-      placeholder: "- Front-end UI\n- Social login\n- OAuth Authorization Code flow"
+      label: "Hors périmètre (Exclus)"
+      description: "Ce qui est explicitement exclu pour éviter le scope creep."
+      placeholder: "- UI front\n- Social login\n- OAuth Authorization Code flow"
     validations:
       required: false
 
   - type: textarea
     id: dod
     attributes:
-      label: "Definition of Done (DoD)"
-      description: "How do you know this epic is complete?"
-      placeholder: "- All sub-issues Done\n- Postman tests updated\n- CI green on main"
+      label: "Définition de Terminé (DoD)"
+      description: "Comment prouver que l’epic est terminé ?"
+      placeholder: "- Toutes les sous-issues sont Done\n- CI verte sur main\n- Postman + README à jour"
     validations:
       required: true
 
   - type: textarea
     id: notes
     attributes:
-      label: "Notes / Constraints"
-      placeholder: "School constraints, OWASP/RGPD rules, etc."
+      label: "Notes / Contraintes"
+      description: "Contraintes école, OWASP/RGPD, décisions techniques."
+      placeholder: "Ex: DRF SimpleJWT, âge ≥ 15, consentements stockés, suppression RGPD."
     validations:
       required: false
