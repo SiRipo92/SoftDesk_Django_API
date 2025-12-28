@@ -17,19 +17,67 @@ School project: build a secure REST API with JWT auth, role-based permissions, O
 poetry install
 ```
 
-### 2) Run the API (dev)
+### 2) Apply database migrations
+```bash
+poetry run python manage.py migrate
+```
+
+### 3) Run the API (dev)
 ```bash
 poetry run python manage.py runserver
 ```
 
-### 3) Run lint
+## Quality checks (lint/format)
+### 1) Run lint
 ```bash
 poetry run ruff check .
 ```
 
-### 4) Run tests
+### 2) Auto-fix lint issues (when possible)
+```bash
+poetry run ruff check . --fix
+```
+
+### 3) Format code
+```bash
+poetry run ruff format .
+```
+
+## Tests (PyTest)
+### 1) Run all tests
 ```bash
 poetry run pytest
+```
+
+### 2) Run tests with quieter output
+```bash
+poetry run pytest -q
+```
+
+### 3) Run tests with coverage
+```bash
+poetry run pytest --cov=apps --cov-report=term-missing
+```
+
+### 4) Generate an HTML coverage report
+```bash
+poetry run pytest --cov=apps --cov-report=html
+```
+
+## Django Utility Commands
+### 1) Run system checks
+```bash
+poetry run python manage.py check
+```
+
+### 2) Create new migrations (after model changes)
+```bash
+poetry run python manage.py makemigrations
+```
+
+### 3) Apply migrations
+```bash
+poetry run python manage.py migrate
 ```
 
 ## Postman
