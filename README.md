@@ -1,6 +1,5 @@
 # SoftDesk Support — Secure REST API (Django REST Framework)
 ![CI](https://github.com/SiRipo92/SoftDesk_Django_API/actions/workflows/ci.yml/badge.svg)
-[![codecov](https://codecov.io/gh/SiRipo92/SoftDesk_Django_API/branch/main/graph/badge.svg)](https://codecov.io/gh/SiRipo92/SoftDesk_Django_API)
 ![Ruff](https://img.shields.io/badge/linted%20with-ruff-261230.svg)
 
 School project: build a secure REST API with JWT auth, role-based permissions, OWASP-inspired protections, and test strategy (Postman + automated tests).
@@ -8,11 +7,11 @@ School project: build a secure REST API with JWT auth, role-based permissions, O
 ## Tech stack
 - Python 3.12
 - Django + Django REST Framework
-- SimpleJWT (access/refresh)
+- SimpleJWT (access/refresh + blacklist)
 - Poetry (dependency management)
-- Ruff (lint)
-- Pytest + pytest-django (tests)
-- GitHub Actions (CI: lint + tests)
+- Ruff (lint + format)
+- Pytest + pytest-django (+ pytest-cov for coverage)
+- GitHub Actions (CI: lint + format check + tests + coverage artifacts)
 
 ## Setup (local)
 ### 1) Install dependencies
