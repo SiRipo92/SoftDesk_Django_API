@@ -88,9 +88,7 @@ class AuthEndpointsTests(APITestCase):
         POST /auth/logout/ requires authentication (IsAuthenticated).
         """
         res = self.client.post(
-            self.logout_url,
-            data={"refresh": "anything"},
-            format="json"
+            self.logout_url, data={"refresh": "anything"}, format="json"
         )
 
         # Depending on DRF auth setup, unauthenticated can be 401 or 403.

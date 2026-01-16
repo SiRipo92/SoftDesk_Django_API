@@ -32,6 +32,7 @@ class UserSerializer(serializers.ModelSerializer):
     - The model also enforces validation via clean() + save(full_clean()).
       This serializer adds user-friendly validation errors early in the request.
     """
+
     password = serializers.CharField(
         write_only=True,
         required=False,
@@ -41,6 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         """Meta configuration for the UserSerializer."""
+
         model = User
         fields = (
             "id",

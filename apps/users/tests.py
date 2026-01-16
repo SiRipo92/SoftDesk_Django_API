@@ -151,23 +151,19 @@ class IsSelfOrAdminTests(APITestCase):
 
     def test_allows_self(self) -> None:
         request = SimpleNamespace(user=self.user)
-        self.assertTrue(self.permission.has_object_permission(
-            request, None, self.user)
-        )
+        self.assertTrue(self.permission.has_object_permission(request, None, self.user))
 
     def test_denies_other_for_non_admin(self) -> None:
         request = SimpleNamespace(user=self.user)
-        self.assertFalse(self.permission.has_object_permission(
-            request, None, self.other)
+        self.assertFalse(
+            self.permission.has_object_permission(request, None, self.other)
         )
 
     def test_allows_admin_for_any_user(self) -> None:
         request = SimpleNamespace(user=self.admin)
-        self.assertTrue(self.permission.has_object_permission(
-            request, None, self.user)
-        )
-        self.assertTrue(self.permission.has_object_permission(
-            request, None, self.other)
+        self.assertTrue(self.permission.has_object_permission(request, None, self.user))
+        self.assertTrue(
+            self.permission.has_object_permission(request, None, self.other)
         )
 
 
@@ -225,9 +221,7 @@ class UserSerializerTests(APITestCase):
 
         new_password = "NewStrongPassw0rd!*"
         serializer = UserSerializer(
-            instance=user,
-            data={"password": new_password},
-            partial=True
+            instance=user, data={"password": new_password}, partial=True
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
@@ -306,11 +300,7 @@ class UserViewSetTests(APITestCase):
             "can_data_be_shared": False,
         }
 
-        res = self.client.post(
-            self.users_list_url,
-            data=payload,
-            format="json"
-        )
+        res = self.client.post(self.users_list_url, data=payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIn("id", res.data)
 
@@ -379,17 +369,13 @@ class UserViewSetTests(APITestCase):
         other_url = reverse("users:users-detail", kwargs={"pk": self.other.id})
 
         res_self = self.client.patch(
-            self_url,
-            data={"first_name": "Sierra"},
-            format="json"
+            self_url, data={"first_name": "Sierra"}, format="json"
         )
         self.assertEqual(res_self.status_code, status.HTTP_200_OK)
         self.assertEqual(res_self.data["first_name"], "Sierra")
 
         res_other = self.client.patch(
-            other_url,
-            data={"first_name": "Nope"},
-            format="json"
+            other_url, data={"first_name": "Nope"}, format="json"
         )
         self.assertEqual(res_other.status_code, status.HTTP_404_NOT_FOUND)
 
