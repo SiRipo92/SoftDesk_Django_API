@@ -145,10 +145,28 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project = self.get_object()
         self.check_object_permissions(request, project)
 
+        # Defensive parsing (even though the URL regex is digits-only).
+        try:
+            target_user_id = int(user_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Identifiant utilisateur invalide."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prevent the owner from removing themselves as contributor.
+        # Otherwise they would lose visibility due to contributors-only queryset.
+        if target_user_id == project.author_id:
+            return Response(
+                {"detail": "Impossible de retirer l'auteur du projet."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         membership = get_object_or_404(
             Contributor,
             project=project,
-            user_id=user_id,
+            user_id=target_user_id,
         )
         membership.delete()
+
         return Response(status=status.HTTP_204_NO_CONTENT)
