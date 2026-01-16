@@ -1,4 +1,7 @@
 # SoftDesk Support — Secure REST API (Django REST Framework)
+![CI](https://github.com/SiRipo92/SoftDesk_Django_API/actions/workflows/ci.yml/badge.svg)
+[![codecov](https://codecov.io/gh/SiRipo92/SoftDesk_Django_API/branch/main/graph/badge.svg)](https://codecov.io/gh/SiRipo92/SoftDesk_Django_API)
+![Ruff](https://img.shields.io/badge/linted%20with-ruff-261230.svg)
 
 School project: build a secure REST API with JWT auth, role-based permissions, OWASP-inspired protections, and test strategy (Postman + automated tests).
 
@@ -84,11 +87,73 @@ poetry run python manage.py migrate
 A Postman collection + environments will live in:
 - `postman/ (to be added)
 
-## Project Structure (high-level)
-- `config/` : Django project settings + root urls
+## Project Structure
+```text
+.
+├── apps/                       # Domain apps (business modules)
+│   ├── auth/                   # JWT login/refresh/logout (blacklist)
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   └── tests.py
+│   ├── users/                  # User CRUD + permissions + serializers
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   └── tests.py
+│   ├── projects/               # Projects + contributor management
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── urls.py
+│   │   ├── views.py
+│   │   └── tests.py
+│   ├── issues/                 # Issues domain (WIP)
+│   └── comments/               # Comments domain (WIP)
+├── common/                     # Shared utilities (permissions, validators, pagination, throttling)
+│   ├── permissions.py
+│   ├── validators.py
+│   ├── paginator.py
+│   └── throttling.py
+├── config/                     # Django project config
+│   ├── settings.py
+│   ├── urls.py
+│   └── api/v1/urls.py          # Versioned API routing entrypoint
+├── postman/                    # Postman collection + environments
+├── manage.py
+├── pyproject.toml              # Poetry + tooling config (ruff, pytest, coverage)
+└── .github/workflows/ci.yml    # CI pipeline (lint + tests + coverage)
+```
 
-- `api/v1/` : versioned API routing entrypoint
+## Quality checks (CI)
 
-- `apps/` : domain apps (users, projects, issues, comments)
+### Lint (Ruff)
+```bash
+poetry run ruff check .
+```
 
-- `.github/workflows/` : CI pipeline
+### Format check (fails if formatting differs)
+```bash
+poetry run ruff format . --check
+```
+
+### Auto-format (applies formatting)
+```bash
+poetry run ruff format .
+```
+
+### Run tests
+```bash
+poetry run pytest
+```
+
+### Run tests + coverage (terminal + HTML report)
+```bash
+rm -f .coverage coverage.xml && rm -rf htmlcov
+poetry run pytest --cov=apps --cov=common --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html
+
+```
+
+## Coverage reports
+
+- Terminal coverage summary: printed in the console
+- HTML report: generated in `htmlcov/` (open `htmlcov/index.html`)

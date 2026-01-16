@@ -11,7 +11,7 @@ so they can be reused in:
 from __future__ import annotations
 
 from datetime import date
-from typing import Final
+from typing import Any, Final
 
 MIN_SIGNUP_AGE_YEARS: Final[int] = 15
 
@@ -62,3 +62,25 @@ def validate_birth_date_min_age(
 
     if calculate_age(birth_date, today=today) < min_age_years:
         raise ValueError("Vous devez avoir au moins 15 ans pour vous inscrire.")
+
+# Validation logic for accepting contributors
+# based on either a provided Email OR Username
+
+def validate_exactly_one_provided(**fields: Any) -> None:
+   """
+   Ensure exactly one field among the provided kwargs is truthy.
+
+
+   Example:
+       validate_exactly_one_provided(username="bob", email=None) (Possible)
+       validate_exactly_one_provided(username=None, email=None)  (Impossible)
+       validate_exactly_one_provided(username="bob", email="x")  (Impossible)
+
+
+   Raises:
+       ValueError: if zero or more than one field is provided.
+   """
+   provided = [name for name, value in fields.items() if value]
+   if len(provided) != 1:
+       names = " / ".join(fields.keys())
+       raise ValueError(f"Fournir exactement un champ: {names}.")

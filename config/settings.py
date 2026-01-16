@@ -37,12 +37,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "django_extensions",
 
     # Django default apps…
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
 
     # Specific apps to project
+    "apps.auth.apps.AuthConfig",
     "apps.users",
     "apps.projects",
     "apps.issues",
@@ -52,6 +54,7 @@ INSTALLED_APPS = [
 # Minimal DRF/JWT baseline
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework.authentication.SessionAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (

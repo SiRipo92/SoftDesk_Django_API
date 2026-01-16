@@ -7,7 +7,6 @@ while the model enforces the same rules at save-time (harder to bypass).
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -19,31 +18,29 @@ from common.validators import validate_birth_date_min_age
 User = get_user_model()
 
 
-def drf_birth_date_validator(value: date) -> date:
+class UserSerializer(serializers.ModelSerializer):
     """
-    DRF wrapper around the common birth_date rule.
+    Serializer for the User resource.
 
-    Args:
-        value (date): Incoming birth_date value.
+    Responsibilities:
+    - Expose the API representation of a User.
+    - Accept a plaintext password (write-only) and hash it via set_password().
+    - Enforce business rules for birth_date at the API boundary.
+    - Convert model-level ValidationError into DRF ValidationError (HTTP 400).
 
-    Returns:
-        date: Same value if valid.
-
-    Raises:
-        serializers.ValidationError: If invalid.
+    Notes:
+    - The model also enforces validation via clean() + save(full_clean()).
+      This serializer adds user-friendly validation errors early in the request.
     """
-    try:
-        validate_birth_date_min_age(value)
-    except ValueError as exc:
-        raise serializers.ValidationError(str(exc)) from exc
-    return value
-
-class UserBaseSerializer(serializers.ModelSerializer):
-    """
-    Base serializer that centralizes shared User fields.
-    """
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        min_length=8,
+        help_text="Plaintext password (write-only). Will be hashed before saving.",
+    )
 
     class Meta:
+        """Meta configuration for the UserSerializer."""
         model = User
         fields = (
             "id",
@@ -54,66 +51,88 @@ class UserBaseSerializer(serializers.ModelSerializer):
             "birth_date",
             "can_be_contacted",
             "can_data_be_shared",
+            "password",
         )
         read_only_fields = ("id",)
 
+    def validate_birth_date(self, value):
+        """
+        Validate the birth_date field.
 
-class UserSignupSerializer(UserBaseSerializer):
-    """
-    Signup serializer: includes password and requires birth_date.
-    """
-    password = serializers.CharField(write_only=True, min_length=8)
+        The rule is delegated to a shared validator used across the project.
 
-    # Override birth_date field to enforce "required" + custom FR messages
-    birth_date = serializers.DateField(
-        required=True,
-        allow_null=False,
-        validators=[drf_birth_date_validator],
-        error_messages={
-            "required": "La date de naissance est requise.",
-            "null": "La date de naissance ne peut pas être vide.",
-            "invalid": "Format de date invalide (YYYY-MM-DD).",
-        },
-    )
+        Args:
+            value (date): The incoming birth date.
 
-    class Meta(UserBaseSerializer.Meta):
-        """Base User Serializer Meta that ties together fields and password"""
-        fields = UserBaseSerializer.Meta.fields + ("password",)
+        Returns:
+            date: The validated birth date.
+
+        Raises:
+            serializers.ValidationError: If the birth date violates business rules
+            (e.g., user too young, date in the future, etc.).
+        """
+        try:
+            validate_birth_date_min_age(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
 
     def create(self, validated_data: dict[str, Any]):
-        """Create a user with a hashed password (convert model errors to 400)."""
-        password: str = validated_data.pop("password")
+        """
+        Create a User instance.
+
+        - Pops "password" from validated_data
+        - Hashes it using set_password()
+        - Saves the user (model will run full_clean in save())
+
+        Args:
+            validated_data (dict[str, Any]): Incoming validated fields.
+
+        Returns:
+            User: The newly created user.
+
+        Raises:
+            serializers.ValidationError: If model-level validation fails.
+        """
+        password = validated_data.pop("password", None)
         user = User(**validated_data)
-        user.set_password(password)
+
+        if password:
+            user.set_password(password)
 
         try:
             user.save()
         except DjangoValidationError as exc:
+            # Preserve field-level error mapping from Django (message_dict).
             raise serializers.ValidationError(exc.message_dict) from exc
 
         return user
 
+    def update(self, instance: User, validated_data: dict[str, Any]):
+        """
+        Update a User instance.
 
-class UserMeSerializer(UserBaseSerializer):
-    """
-    /users/me serializer: birth_date can be omitted on PATCH,
-    but if provided it must be valid (and cannot be null).
-    """
+        - Updates provided attributes via setattr()
+        - Hashes password if provided
+        - Saves the instance (model will run full_clean in save())
 
-    birth_date = serializers.DateField(
-        required=False,  # may omit on PATCH
-        allow_null=False,  # cannot send explicit null
-        validators=[drf_birth_date_validator],
-        error_messages={
-            "null": "La date de naissance ne peut pas être vide.",
-            "invalid": "Format de date invalide (YYYY-MM-DD).",
-        },
-    )
+        Args:
+            instance (User): The user instance to update.
+            validated_data (dict[str, Any]): Incoming validated fields.
 
-    def update(self, instance, validated_data: dict[str, Any]):
-        """Update user fields (convert model errors to 400)."""
-        for attr, val in validated_data.items():
-            setattr(instance, attr, val)
+        Returns:
+            User: The updated user.
+
+        Raises:
+            serializers.ValidationError: If model-level validation fails.
+        """
+        password = validated_data.pop("password", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
 
         try:
             instance.save()

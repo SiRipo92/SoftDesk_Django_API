@@ -21,5 +21,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # All API endpoints will live under /api/v1/
-    path("api/v1/", include("api.v1.urls")),
+    path("api/v1/", include("config.api.v1.urls")),
 ]
