@@ -31,8 +31,11 @@ jobs:
       - name: Install deps (dev included)
         run: poetry install --with dev --no-interaction --no-ansi --no-root
 
-      - name: Ruff
+      - name: Ruff (lint)
         run: poetry run ruff check .
+
+      - name: Ruff (format check)
+        run: poetry run ruff format . --check
 
   test:
     runs-on: ubuntu-latest
@@ -56,7 +59,34 @@ jobs:
         run: poetry install --with dev --no-interaction --no-ansi --no-root
 
       - name: Django check
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings
         run: poetry run python manage.py check
 
-      - name: Tests
-        run: poetry run pytest -q --maxfail=1 --disable-warnings
+      - name: Tests with coverage (fresh run)
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings
+        run: |
+          rm -f .coverage coverage.xml
+          rm -rf htmlcov
+
+          poetry run pytest \
+            --maxfail=1 \
+            --disable-warnings \
+            --cov=apps \
+            --cov=common \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov

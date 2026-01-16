@@ -7,17 +7,13 @@ On découpe les routes par "surface" :
 - Users : endpoints de compte (me)
 """
 
-from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+
+from .views import UserViewSet
 
 app_name = "users"
 
-urlpatterns = [
-    # Public auth routes (pas de préfixe /auth)
-    path("", include("apps.users.urls_public")),
+router = DefaultRouter()
+router.register("users", UserViewSet, basename="users")
 
-    # Token management / logout côté serveur
-    path("auth/", include("apps.users.urls_auth")),
-
-    # Endpoints "compte"
-    path("users/", include("apps.users.urls_users")),
-]
+urlpatterns = router.urls
