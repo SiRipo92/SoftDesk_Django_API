@@ -1,11 +1,10 @@
 """
 Projects app serializers.
 
-- ProjectSerializer: CRUD for Project resources.
-- ContributorReadSerializer: representation of project membership rows
-    (read-only output).
-- ContributorCreateSerializer: validates username/email lookup
-    then creates a membership row.
+- ProjectListSerializer: project list output (includes contributors_count).
+- ProjectDetailSerializer: project detail output (includes contributors list).
+- ContributorReadSerializer: representation of membership rows (Contributor model).
+- ContributorCreateSerializer: validates username/email lookup then creates membership.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.issues.serializers import IssueSummarySerializer
 from common.validators import validate_exactly_one_provided
 
 from .models import Contributor, Project
@@ -22,12 +22,59 @@ from .models import Contributor, Project
 User = get_user_model()
 
 
-class ProjectSerializer(serializers.ModelSerializer):
-    """Serializer for Project CRUD."""
+#-------------------------------------------------------------
+# Project Serializers (Differentiates between fields in List & Detail)
+#-------------------------------------------------------------
 
-    # Read-only author info that exposes id + username
+class ProjectCreateSerializer(serializers.ModelSerializer):
+    """
+    Input-only serializer for creating projects.
+    """
+
+    class Meta:
+        model = Project
+        fields = (
+            "name",
+            "description",
+            "project_type",
+
+        )
+
+    def create(self, validated_data):
+
+        request = self.context["request"]
+        author = request.user
+
+        # Create project
+        project = Project.objects.create(
+            author=author,
+            **validated_data
+        )
+
+        # Ensure author is contributor
+        Contributor.objects.get_or_create(
+            project=project,
+            user=author,
+            defaults={"added_by": author},
+        )
+
+        return project
+
+
+class ProjectListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Project list views.
+
+    Output goal:
+    - Keep list responses light.
+    - Provide an integer contributors_count that excludes the project owner.
+      (This count is expected to be provided by the queryset via annotate().)
+    """
+
     author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_username = serializers.CharField(source="author.username", read_only=True)
+
+    contributors_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Project
@@ -38,61 +85,109 @@ class ProjectSerializer(serializers.ModelSerializer):
             "project_type",
             "author_id",
             "author_username",
+            "contributors_count",
             "created_at",
             "updated_at",
         )
-        read_only_fields = (
+        read_only_fields = fields
+    
+
+class ProjectDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Project detail views.
+
+    Output goal:
+    - Show contributors as a list of membership rows excluding the owner.
+    - Each row includes contributor identity + who added them.
+    - We intentionally do NOT show created_at for contributors (per your need).
+    """
+
+    author_id = serializers.IntegerField(source="author.id", read_only=True)
+    author_username = serializers.CharField(source="author.username", read_only=True)
+
+    contributors = serializers.SerializerMethodField()
+    issues = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Project
+        fields = (
             "id",
+            "name",
+            "description",
+            "project_type",
             "author_id",
             "author_username",
+            "contributors",
+            "issues",
             "created_at",
             "updated_at",
         )
+        read_only_fields = fields
 
-    def create(self, validated_data: dict[str, Any]) -> Project:
+    def get_contributors(self, obj: Project) -> list[dict[str, Any]]:
         """
-        Create a Project.
+        Build the contributors list from Contributor membership rows.
 
-        Author is always the authenticated user (never provided by client).
+        We read from obj.memberships (Contributor join table) because:
+        - It contains added_by (who added the contributor).
+        - It links to the user (contributor) for username/email.
+
+        Owner exclusion:
+        - The owner is always a contributor in DB for visibility.
+        - We hide the owner from the contributors list in the API output.
         """
-        request = self.context["request"]
-        return Project.objects.create(author=request.user, **validated_data)
+        memberships = (
+            obj.memberships.select_related("user", "added_by")
+            .exclude(user_id=obj.author_id)
+            .order_by("user__username")
+        )
+        return ContributorReadSerializer(memberships, many=True).data
 
+    def get_issues(self, obj: Project):
+        """Return issue summaries for this project (most recent first)."""
+        qs = (
+            obj.issues.select_related("author")
+            .prefetch_related("assignees")
+            .order_by("-updated_at")
+        )
+        return IssueSummarySerializer(qs, many=True, context=self.context).data
+
+#-------------------------------------------------------------
+# Project Serializers (Differentiates between fields in List & Detail)
+#-------------------------------------------------------------
 
 class ContributorReadSerializer(serializers.ModelSerializer):
     """
     Read-only serializer for membership rows.
 
-    Why ModelSerializer here?
-    - This serializer represents an actual Contributor model instance.
-    - Output fields are either model fields (id, created_at) or derived from relations.
+    This serializer represents an actual Contributor model instance.
+    Output fields are either model fields or derived from relations.
 
-    This is presentation / representation for:
+    Used for:
     - listing contributors on a project
     - returning the created membership row after POST
     """
 
     # Contributor.user is a FK -> expose selected user info in a flattened shape
+    membership_id = serializers.IntegerField(source="id", read_only=True)
+
     user_id = serializers.IntegerField(source="user.id", read_only=True)
-    user_username = serializers.CharField(source="user.username", read_only=True)
-    user_email = serializers.CharField(source="user.email", read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+    email = serializers.CharField(source="user.email", read_only=True)
 
     # Contributor.added_by is a FK -> expose who added the contributor
-    added_by_id = serializers.IntegerField(source="added_by.id", read_only=True)
-    added_by_username = serializers.CharField(
+    added_by = serializers.CharField(
         source="added_by.username", read_only=True
     )
 
     class Meta:
         model = Contributor
         fields = (
-            "id",
+            "membership_id",
             "user_id",
-            "user_username",
-            "user_email",
-            "added_by_id",
-            "added_by_username",
-            "created_at",
+            "username",
+            "email",
+            "added_by",
         )
         # This serializer is output-only: no writes expected from client
         read_only_fields = fields
@@ -102,15 +197,8 @@ class ContributorCreateSerializer(serializers.Serializer):
     """
     Input-only serializer for adding a contributor to a project.
 
-    IMPORTANT: Why NOT ModelSerializer?
-    - ModelSerializer is intended when the client payload maps to model fields.
-      Example: { "user": 12, "project": 3, "added_by": 7 } (direct Contributor fields).
-    - Here, the client does NOT send Contributor model fields.
-      The client sends lookup keys: { "username": "..." } OR { "email": "..." }
-      These are NOT fields on the Contributor model.
-    - serializers.Serializer validates the lookup input,
-      resolves a User from the database,
-      and then creates the Contributor row server-side.
+    The client sends lookup keys:
+      - { "username": "..." } OR { "email": "..." }
 
     Context requirements (provided by the view):
     - context["request"]
@@ -125,9 +213,8 @@ class ContributorCreateSerializer(serializers.Serializer):
         """
         Validate that exactly one lookup key is provided and resolve the target user.
 
-        DB lookups belong here because:
-         - "does this username/email exist?" is a database concern
-         - "is this user already a contributor?" is a database constraint check
+        - "does this username/email exist?" is a database concern
+        - "is this user already a contributor?" is a database constraint check
         """
         username: str | None = attrs.get("username")
         email: str | None = attrs.get("email")
@@ -139,6 +226,8 @@ class ContributorCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(exc)) from exc
 
         # Resolve target user (DB lookup)
+        # Returns the first object matched by the QuerySet,
+        # or None if no match exists
         if username:
             user = User.objects.filter(username=username).first()
         else:
@@ -162,12 +251,9 @@ class ContributorCreateSerializer(serializers.Serializer):
         """
         Create a Contributor membership row.
 
-        Inputs come indirectly:
-        - validate() injects `resolved_user`
-        - project comes from serializer context
-        - added_by is always the authenticated user (request.user)
-
-        We do not accept these sensitive fields from the client.
+        Sensitive fields are server-controlled:
+        - project comes from context (not payload)
+        - added_by is request.user
         """
         request = self.context["request"]
         project: Project = self.context["project"]
