@@ -30,7 +30,7 @@ class Project(models.Model):
         contributors: Members of the project (Many-to-many via Contributor).
     """
 
-    name = models.CharField(max_length=150)
+    name = models.CharField(max_length=150, blank=False, null=False)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
@@ -47,7 +47,7 @@ class Project(models.Model):
         settings.AUTH_USER_MODEL,
         through="Contributor",
         # IMPORTANT: Contributor has TWO FKs to User (user + added_by).
-        # We must tell Django which FK is the "target" of this M2M.
+        # We tell Django which FK is the "target" of this M2M.
         through_fields=("project", "user"),
         # user.contributed_projects.all() -> projects where user is a contributor
         related_name="contributed_projects",

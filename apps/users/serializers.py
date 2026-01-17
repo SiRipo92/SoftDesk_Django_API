@@ -13,14 +13,40 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.projects.models import Project
 from common.validators import validate_birth_date_min_age
 
 User = get_user_model()
 
 
+class UserProjectSummarySerializer(serializers.ModelSerializer):
+    """
+    Small project representation to embed inside User detail responses.
+
+    Purpose is for Admin-Listing of Users
+    """
+
+    author_id = serializers.IntegerField(source="author.id", read_only=True)
+    author_username = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = Project
+        fields = (
+            "id",
+            "name",
+            "description",
+            "project_type",
+            "author_id",
+            "author_username",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
 class UserSerializer(serializers.ModelSerializer):
     """
-    Serializer for the User resource.
+    Base serializer for creating/updating a user.
 
     Responsibilities:
     - Expose the API representation of a User.
@@ -31,6 +57,10 @@ class UserSerializer(serializers.ModelSerializer):
     Notes:
     - The model also enforces validation via clean() + save(full_clean()).
       This serializer adds user-friendly validation errors early in the request.
+    - Adds summary counters :
+        - num_projects_owned: projects where user is the author.
+        - num_projects_added_as_contrib: projects where user is a contributor
+            but NOT the author (i.e., they were added to someone else's project).
     """
 
     password = serializers.CharField(
@@ -142,3 +172,87 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(exc.message_dict) from exc
 
         return instance
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    """
+    Admin list serializer.
+
+    Goal:
+    - Keep it light.
+    - Include a computed projects_count
+        (number of projects where the user is contributor).
+    """
+
+    projects_count = serializers.IntegerField(read_only=True)
+    num_projects_owned = serializers.IntegerField(read_only=True)
+    num_projects_added_as_contrib = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "username",
+            "email",
+            "projects_count",
+            "num_projects_owned",
+            "num_projects_added_as_contrib",
+        )
+        read_only_fields = fields
+
+
+class UserDetailSerializer(UserSerializer):
+    """
+    Detail serializer for /users/{id}/
+
+    Adds:
+    - owned_projects: projects authored by this user
+    - contributed_projects: projects where user is a contributor but not the author
+    - summary counters
+    """
+
+    owned_projects = serializers.SerializerMethodField()
+    contributed_projects = serializers.SerializerMethodField()
+
+    num_projects_owned = serializers.IntegerField(read_only=True)
+    num_projects_added_as_contrib = serializers.IntegerField(read_only=True)
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + (
+            "num_projects_owned",
+            "num_projects_added_as_contrib",
+            "owned_projects",
+            "contributed_projects",
+        )
+
+    def get_owned_projects(self, obj: User):
+        """
+        Projects where the user is the author (owner).
+
+        Why this is separate:
+        - It answers “what did this user create/own?”
+        """
+        qs = (
+            Project.objects.filter(author=obj)
+            .select_related("author")
+            .order_by("-updated_at")
+        )
+        return UserProjectSummarySerializer(qs, many=True).data
+
+    def get_contributed_projects(self, obj: User):
+        """
+        Projects where the user is a contributor but NOT the author.
+
+        Why the exclude():
+        - In this system the owner is also a contributor for visibility.
+        - Without excluding owned projects, entries would be duplicated
+            across both lists.
+        """
+        qs = (
+            Project.objects.filter(contributors=obj)
+            .exclude(author=obj)  # <-- prevents overlap with owned_projects
+            .select_related("author")
+            .distinct()
+            .order_by("-updated_at")
+        )
+        return UserProjectSummarySerializer(qs, many=True).data
