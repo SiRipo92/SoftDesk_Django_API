@@ -1,3 +1,132 @@
-from django.db import models
+from __future__ import annotations
 
-# Create your models here.
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
+
+from apps.projects.models import Project
+
+#--------------------------------------------------
+# Text field options (Priority, Tag, Status)
+#--------------------------------------------------
+
+class IssuePriority(models.TextChoices):
+    """Priority levels available for an issue."""
+    LOW = "LOW", "low"
+    MEDIUM = "MEDIUM", "medium"
+    HIGH = "HIGH", "high"
+
+
+class IssueTag(models.TextChoices):
+    """Category labels available for an Issue"""
+    BUG = "BUG", "bug"
+    FEATURE = "FEATURE", "feature"
+    TASK = "TASK", "task"
+
+
+class IssueStatus(models.TextChoices):
+    """Workflow states available for an issue."""
+    TODO = "TO DO", "To Do"
+    IN_PROGRESS = "IN_PROGRESS", "In Progress"
+    COMPLETED = "COMPLETED", "Completed"
+
+
+#--------------------------------------------------
+# Model class for Issues
+#--------------------------------------------------
+
+class Issue(models.Model):
+    """
+    Stores an issue attached to a single project.
+
+    Business rules:
+    - The issue author must belong to the project's contributors list.
+
+    Assignees are optional:
+    - An issue can have zero, one, or many assigned users.
+    """
+
+    title = models.CharField(max_length=150)
+    description = models.TextField(max_length=500, blank=True)
+
+    # Optional: if not provided, the value will be an empty string ("").
+    priority = models.CharField(
+        max_length=15,
+        choices=IssuePriority.choices,
+        blank=True,
+    )
+
+    # Optional: single tag value (not a relation).
+    tag = models.CharField(
+        max_length=15,
+        choices=IssueTag.choices,
+        blank=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=IssueStatus.choices,
+        default = IssueStatus.TODO,
+    )
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="issues",
+    )
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="issues_created",
+    )
+
+    # Optional: an issue can be assigned to multiple users.
+    # Constraint "assignees must be contributors" will be enforced in the serializer.
+    assignees = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="issues_assigned",
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self) -> None:
+        """
+        Validate rules that depend on multiple fields.
+
+        - If both project and author are set, verify the author is part of
+          the project's contributors.
+        """
+
+        super().clean()
+
+        # If one of these is missing, we can't validate the rule yet.
+        if self.project_id is None or self.author_id is None:
+            return
+
+        project= self.project
+        author = self.author
+
+        # Business rule: only project contributors can create issues.
+        if not project.is_contributor(author):
+            raise ValidationError(
+                {"author": "L'auteur doit être contributeur du projet."}
+            )
+
+    def save(self, *args, **kwargs) -> None:
+        """
+        Validate the model before saving.
+
+        This ensures `clean()` is executed whenever an Issue is saved.
+        """
+
+        # full_clean calls field validation + clean()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        """Readable label for admin/debug."""
+        return self.title
