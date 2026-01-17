@@ -22,9 +22,10 @@ from .models import Contributor, Project
 User = get_user_model()
 
 
-#-------------------------------------------------------------
+# -------------------------------------------------------------
 # Project Serializers (Differentiates between fields in List & Detail)
-#-------------------------------------------------------------
+# -------------------------------------------------------------
+
 
 class ProjectCreateSerializer(serializers.ModelSerializer):
     """
@@ -37,19 +38,14 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "project_type",
-
         )
 
     def create(self, validated_data):
-
         request = self.context["request"]
         author = request.user
 
         # Create project
-        project = Project.objects.create(
-            author=author,
-            **validated_data
-        )
+        project = Project.objects.create(author=author, **validated_data)
 
         # Ensure author is contributor
         Contributor.objects.get_or_create(
@@ -90,7 +86,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = fields
-    
+
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
     """
@@ -152,9 +148,11 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         )
         return IssueSummarySerializer(qs, many=True, context=self.context).data
 
-#-------------------------------------------------------------
+
+# -------------------------------------------------------------
 # Project Serializers (Differentiates between fields in List & Detail)
-#-------------------------------------------------------------
+# -------------------------------------------------------------
+
 
 class ContributorReadSerializer(serializers.ModelSerializer):
     """
@@ -176,9 +174,7 @@ class ContributorReadSerializer(serializers.ModelSerializer):
     email = serializers.CharField(source="user.email", read_only=True)
 
     # Contributor.added_by is a FK -> expose who added the contributor
-    added_by = serializers.CharField(
-        source="added_by.username", read_only=True
-    )
+    added_by = serializers.CharField(source="added_by.username", read_only=True)
 
     class Meta:
         model = Contributor

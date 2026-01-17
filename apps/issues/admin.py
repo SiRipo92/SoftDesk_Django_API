@@ -6,6 +6,7 @@ from .models import Issue
 @admin.register(Issue)
 class IssueAdmin(admin.ModelAdmin):
     """Admin configuration for Issue."""
+
     list_display = (
         "id",
         "title",
@@ -15,7 +16,7 @@ class IssueAdmin(admin.ModelAdmin):
         "priority",
         "tag",
         "created_at",
-        "updated_at"
+        "updated_at",
     )
     list_filter = ("status", "priority", "tag", "project")
     search_fields = (
@@ -23,6 +24,6 @@ class IssueAdmin(admin.ModelAdmin):
         "description",
         "project__name",
         "author__username",
-        "author__email"
+        "author__email",
     )
     ordering = ("-updated_at",)

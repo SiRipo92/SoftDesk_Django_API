@@ -132,9 +132,7 @@ class IsSelfOrAdminPermissionTests(APITestCase):
         permission = IsSelfOrAdmin()
         request = type("Request", (), {"user": self.user})()
 
-        self.assertTrue(
-            permission.has_object_permission(request, None, self.user)
-        )
+        self.assertTrue(permission.has_object_permission(request, None, self.user))
 
     def test_user_is_denied_access_to_others(self):
         """

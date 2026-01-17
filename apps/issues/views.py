@@ -70,8 +70,10 @@ class IssueViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated(), IsIssueAuthor()]
 
         # only author can add/remove assignees
-        if (self.action in ("assignees", "remove_assignee")
-                and self.request.method in ("POST", "DELETE")):
+        if self.action in ("assignees", "remove_assignee") and self.request.method in (
+            "POST",
+            "DELETE",
+        ):
             return [permissions.IsAuthenticated(), IsIssueAuthor()]
 
         return [permissions.IsAuthenticated()]
@@ -108,8 +110,7 @@ class IssueViewSet(viewsets.ModelViewSet):
         user = serializer.save()
 
         return Response(
-            IssueAssigneeReadSerializer(user).data,
-            status=status.HTTP_201_CREATED
+            IssueAssigneeReadSerializer(user).data, status=status.HTTP_201_CREATED
         )
 
     @action(detail=True, methods=["delete"], url_path=r"assignees/(?P<user_id>\d+)")

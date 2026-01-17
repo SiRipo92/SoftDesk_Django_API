@@ -23,10 +23,7 @@ class Comment(models.Model):
         unique=True,
     )
 
-    description = models.TextField(
-        max_length=500,
-        blank=False
-    )
+    description = models.TextField(max_length=500, blank=False)
 
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
@@ -40,7 +37,7 @@ class Comment(models.Model):
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="comments_created"
+        related_name="comments_created",
     )
 
     def clean(self) -> None:

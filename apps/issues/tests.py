@@ -66,9 +66,7 @@ def make_user(username: str, email: str, birth_date: date | None = None) -> User
 
 
 def make_project(
-        author: User,
-        name: str = "P1",
-        project_type: str = "BACK_END"
+    author: User, name: str = "P1", project_type: str = "BACK_END"
 ) -> Project:
     """
     Create a project + create the author membership row.
@@ -229,15 +227,11 @@ class IssueSerializerTests(APITestCase):
         project = make_project(author=user)
 
         request = factory.post(
-            "/api/v1/projects/1/issues/",
-            {"title": "x"},
-            format="json"
+            "/api/v1/projects/1/issues/", {"title": "x"}, format="json"
         )
         request.user = user
 
-        serializer = IssueSerializer(
-            context={"request": request, "project": project}
-        )
+        serializer = IssueSerializer(context={"request": request, "project": project})
         self.assertNotIn("project", serializer.fields)
 
     def test_issue_serializer_disallows_changing_project_on_update(self) -> None:
@@ -250,9 +244,7 @@ class IssueSerializerTests(APITestCase):
 
         factory = APIRequestFactory()
         request = factory.patch(
-            "/api/v1/issues/1/",
-            {"project": project2.pk},
-            format="json"
+            "/api/v1/issues/1/", {"project": project2.pk}, format="json"
         )
         request.user = author
 
@@ -260,7 +252,7 @@ class IssueSerializerTests(APITestCase):
             instance=issue,
             data={"project": project2.pk},
             partial=True,
-            context={"request": request}
+            context={"request": request},
         )
         self.assertTrue(serializer.is_valid())
 
@@ -284,8 +276,9 @@ class IssueSerializerTests(APITestCase):
         issue = make_issue(project=project, author=author)
 
         serializer = IssueAssigneeAddSerializer(context={"issue": issue})
-        allowed_ids = list(serializer.fields["user"].queryset.
-                           values_list("id", flat=True))
+        allowed_ids = list(
+            serializer.fields["user"].queryset.values_list("id", flat=True)
+        )
 
         self.assertIn(author.id, allowed_ids)
         self.assertIn(contributor.id, allowed_ids)
@@ -309,14 +302,10 @@ class IssueViewSetTests(APITestCase):
         self.project_hidden = make_project(author=self.outsider, name="Hidden")
 
         self.issue1 = make_issue(
-            project=self.project_visible,
-            author=self.author,
-            title="I1"
+            project=self.project_visible, author=self.author, title="I1"
         )
         self.issue2 = make_issue(
-            project=self.project_hidden,
-            author=self.outsider,
-            title="I2"
+            project=self.project_hidden, author=self.outsider, title="I2"
         )
 
     def test_list_only_returns_project_issues_where_user_is_contributor(self) -> None:
@@ -342,10 +331,7 @@ class IssueViewSetTests(APITestCase):
         """
         self.client.force_authenticate(user=self.other)
 
-        url = reverse(
-            "issues:issues-detail",
-            kwargs={"pk": self.issue2.pk}
-        )
+        url = reverse("issues:issues-detail", kwargs={"pk": self.issue2.pk})
         res = self.client.get(url)
 
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
@@ -361,8 +347,9 @@ class IssueViewSetTests(APITestCase):
 
         # other is NOT contributor of project_hidden
         payload = {
-            "title": "New", "project": self.project_hidden.pk,
-            "status": IssueStatus.TODO
+            "title": "New",
+            "project": self.project_hidden.pk,
+            "status": IssueStatus.TODO,
         }
         res = self.client.post(url, payload, format="json")
 
@@ -370,8 +357,9 @@ class IssueViewSetTests(APITestCase):
 
         # other IS contributor of project_visible
         payload_ok = {
-            "title": "New2", "project": self.project_visible.pk,
-            "status": IssueStatus.TODO
+            "title": "New2",
+            "project": self.project_visible.pk,
+            "status": IssueStatus.TODO,
         }
         res_ok = self.client.post(url, payload_ok, format="json")
 
@@ -382,10 +370,7 @@ class IssueViewSetTests(APITestCase):
         """
         update/partial_update/destroy are protected by IsIssueAuthor.
         """
-        url = reverse(
-            "issues:issues-detail",
-            kwargs={"pk": self.issue1.pk}
-        )
+        url = reverse("issues:issues-detail", kwargs={"pk": self.issue1.pk})
 
         # contributor but not author -> forbidden
         self.client.force_authenticate(user=self.other)
@@ -405,10 +390,7 @@ class IssueViewSetTests(APITestCase):
         - POST adds one assignee (author only)
         - DELETE removes one assignee (author only)
         """
-        list_add_url = reverse(
-            "issues:issues-assignees",
-            kwargs={"pk": self.issue1.pk}
-        )
+        list_add_url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
 
         # initially empty
         self.client.force_authenticate(user=self.author)
@@ -417,11 +399,7 @@ class IssueViewSetTests(APITestCase):
         self.assertEqual(res0.json(), [])
 
         # POST add contributor 'other'
-        res1 = self.client.post(
-            list_add_url,
-            {"user": self.other.pk},
-            format="json"
-        )
+        res1 = self.client.post(list_add_url, {"user": self.other.pk}, format="json")
         self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
 
         # now listed
@@ -436,7 +414,8 @@ class IssueViewSetTests(APITestCase):
         # remove assignee
         remove_url = reverse(
             "issues:issues-remove-assignee",
-            kwargs={"pk": self.issue1.pk, "user_id": self.other.pk})
+            kwargs={"pk": self.issue1.pk, "user_id": self.other.pk},
+        )
         res3 = self.client.delete(remove_url)
         self.assertEqual(res3.status_code, status.HTTP_204_NO_CONTENT)
 
@@ -447,10 +426,7 @@ class IssueViewSetTests(APITestCase):
         """
         Assignee management is author-only.
         """
-        url = reverse(
-            "issues:issues-assignees",
-            kwargs={"pk": self.issue1.pk}
-        )
+        url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
 
         self.client.force_authenticate(user=self.other)  # not author
         res = self.client.post(url, {"user": self.other.pk}, format="json")
@@ -462,10 +438,7 @@ class IssueViewSetTests(APITestCase):
         Serializer must reject assigning a user that isn't
         a contributor of issue.project.
         """
-        url = reverse(
-            "issues:issues-assignees",
-            kwargs={"pk": self.issue1.pk}
-        )
+        url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
 
         self.client.force_authenticate(user=self.author)
 
@@ -491,9 +464,7 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
         add_contributor(self.project, self.contributor, added_by=self.author)
 
         self.issue = make_issue(
-            project=self.project,
-            author=self.author,
-            title="NestedIssue"
+            project=self.project, author=self.author, title="NestedIssue"
         )
 
     def test_nested_list_requires_project_contributor(self) -> None:
@@ -509,8 +480,7 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
         self.client.force_authenticate(user=self.outsider)
         res_no = self.client.get(url)
         self.assertIn(
-            res_no.status_code,
-            (status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN)
+            res_no.status_code, (status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN)
         )
 
     def test_nested_create_forces_project_from_url(self) -> None:
@@ -518,10 +488,7 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
         POST /projects/{id}/issues/ should NOT require 'project' in payload.
         It is forced from the URL project.
         """
-        url = reverse(
-            "projects:projects-issues",
-            kwargs={"pk": self.project.pk}
-        )
+        url = reverse("projects:projects-issues", kwargs={"pk": self.project.pk})
         self.client.force_authenticate(user=self.contributor)
 
         payload = {"title": "Created nested", "status": IssueStatus.TODO}
@@ -536,15 +503,13 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
         """
         other_project = make_project(author=self.author, name="OtherProj")
 
-        url = reverse(
-            "projects:projects-issues",
-            kwargs={"pk": self.project.pk}
-        )
+        url = reverse("projects:projects-issues", kwargs={"pk": self.project.pk})
         self.client.force_authenticate(user=self.author)
 
         payload = {
-            "title": "Bad", "status": IssueStatus.TODO,
-            "project": other_project.pk
+            "title": "Bad",
+            "status": IssueStatus.TODO,
+            "project": other_project.pk,
         }
         res = self.client.post(url, payload, format="json")
 
@@ -553,7 +518,8 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
     def test_nested_issue_detail_get_ok_for_contributor(self) -> None:
         url = reverse(
             "projects:projects-issue-detail",
-            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk})
+            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk},
+        )
         self.client.force_authenticate(user=self.contributor)
 
         res = self.client.get(url)
@@ -563,7 +529,8 @@ class ProjectIssuesNestedEndpointsTests(APITestCase):
     def test_nested_issue_detail_patch_delete_author_only(self) -> None:
         url = reverse(
             "projects:projects-issue-detail",
-            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk})
+            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk},
+        )
 
         # contributor but not issue author -> 403
         self.client.force_authenticate(user=self.contributor)

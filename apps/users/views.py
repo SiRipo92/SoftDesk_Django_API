@@ -50,9 +50,9 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
 
-        base_qs = User.objects.all() \
-            if user.is_staff \
-            else User.objects.filter(id=user.id)
+        base_qs = (
+            User.objects.all() if user.is_staff else User.objects.filter(id=user.id)
+        )
 
         # The summaries are in BOTH list and retrieve, so always annotated.
         qs = base_qs.annotate(
@@ -69,11 +69,15 @@ class UserViewSet(viewsets.ModelViewSet):
             qs = qs.prefetch_related(
                 Prefetch(
                     "owned_projects",
-                    queryset=Project.objects.select_related("author").order_by("-updated_at"),
+                    queryset=Project.objects.select_related("author").order_by(
+                        "-updated_at"
+                    ),
                 ),
                 Prefetch(
                     "contributed_projects",
-                    queryset=Project.objects.select_related("author").order_by("-updated_at"),
+                    queryset=Project.objects.select_related("author").order_by(
+                        "-updated_at"
+                    ),
                 ),
             )
 
@@ -83,4 +87,3 @@ class UserViewSet(viewsets.ModelViewSet):
             )
 
         return qs
-

@@ -7,12 +7,14 @@ from django.utils import timezone
 
 from apps.projects.models import Project
 
-#--------------------------------------------------
+# --------------------------------------------------
 # Text field options (Priority, Tag, Status)
-#--------------------------------------------------
+# --------------------------------------------------
+
 
 class IssuePriority(models.TextChoices):
     """Priority levels available for an issue."""
+
     LOW = "LOW", "low"
     MEDIUM = "MEDIUM", "medium"
     HIGH = "HIGH", "high"
@@ -20,6 +22,7 @@ class IssuePriority(models.TextChoices):
 
 class IssueTag(models.TextChoices):
     """Category labels available for an Issue"""
+
     BUG = "BUG", "bug"
     FEATURE = "FEATURE", "feature"
     TASK = "TASK", "task"
@@ -27,14 +30,16 @@ class IssueTag(models.TextChoices):
 
 class IssueStatus(models.TextChoices):
     """Workflow states available for an issue."""
+
     TODO = "TO DO", "To Do"
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     COMPLETED = "COMPLETED", "Completed"
 
 
-#--------------------------------------------------
+# --------------------------------------------------
 # Model class for Issues
-#--------------------------------------------------
+# --------------------------------------------------
+
 
 class Issue(models.Model):
     """
@@ -67,7 +72,7 @@ class Issue(models.Model):
     status = models.CharField(
         max_length=20,
         choices=IssueStatus.choices,
-        default = IssueStatus.TODO,
+        default=IssueStatus.TODO,
     )
 
     project = models.ForeignKey(
@@ -107,7 +112,7 @@ class Issue(models.Model):
         if self.project_id is None or self.author_id is None:
             return
 
-        project= self.project
+        project = self.project
         author = self.author
 
         # Business rule: only project contributors can create issues.

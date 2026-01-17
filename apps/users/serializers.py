@@ -250,7 +250,7 @@ class UserDetailSerializer(UserSerializer):
         """
         qs = (
             Project.objects.filter(contributors=obj)
-            .exclude(author=obj)          # <-- prevents overlap with owned_projects
+            .exclude(author=obj)  # <-- prevents overlap with owned_projects
             .select_related("author")
             .distinct()
             .order_by("-updated_at")

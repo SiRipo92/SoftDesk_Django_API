@@ -296,20 +296,15 @@ class ProjectViewSetBehaviorTests(APITestCase):
         )
 
         Contributor.objects.create(
-            project=self.project,
-            user=self.author,
-            added_by=self.author
+            project=self.project, user=self.author, added_by=self.author
         )
         Contributor.objects.create(
-            project=self.project,
-            user=self.bob,
-            added_by=self.author
+            project=self.project, user=self.bob, added_by=self.author
         )
 
         self.list_url = reverse("projects:projects-list")
         self.detail_url = reverse(
-            "projects:projects-detail",
-            kwargs={"pk": self.project.pk}
+            "projects:projects-detail", kwargs={"pk": self.project.pk}
         )
         self.remove_bob_url = reverse(
             "projects:projects-remove-contributor",

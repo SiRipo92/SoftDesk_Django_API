@@ -55,18 +55,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 project_id=OuterRef("pk"),
                 user=user,
             )
-            base_qs = base_qs.annotate(
-                _is_member=Exists(is_member)
-            ).filter(_is_member=True)
+            base_qs = base_qs.annotate(_is_member=Exists(is_member)).filter(
+                _is_member=True
+            )
 
-        return (
-            base_qs.select_related("author")
-            .annotate(
-                contributors_count=Count(
-                    "memberships",
-                    filter=~Q(memberships__user_id=F("author_id")),
-                    distinct=True,
-                )
+        return base_qs.select_related("author").annotate(
+            contributors_count=Count(
+                "memberships",
+                filter=~Q(memberships__user_id=F("author_id")),
+                distinct=True,
             )
         )
 
@@ -140,13 +137,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         return [p() for p in perms]
 
-
     # ---------------------------
     # Contributor management
     # ---------------------------
 
     @action(detail=True, methods=["get", "post"], url_path="contributors")
-    def contributors(self, request, pk=None,):
+    def contributors(
+        self,
+        request,
+        pk=None,
+    ):
         """
         GET  /projects/{id}/contributors/
             -> List membership rows (contributors + who added them)
@@ -185,7 +185,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
         methods=["delete"],
         url_path=r"contributors/(?P<user_id>\d+)",
     )
-    def remove_contributor(self, request, user_id=None, pk=None,):
+    def remove_contributor(
+        self,
+        request,
+        user_id=None,
+        pk=None,
+    ):
         """
         DELETE /projects/{id}/contributors/{user_id}/
 

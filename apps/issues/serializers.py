@@ -84,7 +84,7 @@ class IssueSummarySerializer(serializers.ModelSerializer):
             "tag",
             "author_id",
             "assignees_count",
-            "updated_at"
+            "updated_at",
         )
         read_only_fields = fields
 
@@ -153,9 +153,11 @@ class IssueSerializer(serializers.ModelSerializer):
         Ensure project is available either from context (nested endpoint)
         or from payload (global endpoint).
         """
-        project = (self.context.get("project")
-                   or attrs.get("project")
-                   or getattr(self.instance, "project", None))
+        project = (
+            self.context.get("project")
+            or attrs.get("project")
+            or getattr(self.instance, "project", None)
+        )
         if project is None:
             raise serializers.ValidationError({"project": "Ce champ est requis."})
         return attrs
@@ -180,8 +182,7 @@ class IssueSerializer(serializers.ModelSerializer):
             priority=validated_data.get("priority", ""),
             tag=validated_data.get("tag", ""),
             status=validated_data.get(
-                "status",
-                Issue._meta.get_field("status").default
+                "status", Issue._meta.get_field("status").default
             ),
         )
 
@@ -199,8 +200,10 @@ class IssueSerializer(serializers.ModelSerializer):
         - project cannot be changed
         - assignees are not handled here (separate endpoints)
         """
-        if ("project" in validated_data
-                and validated_data["project"] != instance.project):
+        if (
+            "project" in validated_data
+            and validated_data["project"] != instance.project
+        ):
             raise serializers.ValidationError(
                 {"project": "Impossible de changer le projet d'un issue existant."}
             )
