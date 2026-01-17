@@ -38,8 +38,6 @@ exclude = [
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
-[tool.ruff.lint.per-file-ignores]
-"apps/*/admin.py" = ["F401"]
-"apps/*/models.py" = ["F401"]
-"apps/*/tests.py" = ["F401"]
-"apps/*/views.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "common", "config"]
