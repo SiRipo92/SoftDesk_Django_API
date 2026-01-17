@@ -14,4 +14,7 @@ urlpatterns = [
     path("", include(("apps.users.urls", "users"), namespace="users")),
     # Module Projects (projects + contributors)
     path("", include(("apps.projects.urls", "projects"), namespace="projects")),
+
+    # Issues listing (tied to the user that's logged in)
+    path("", include(("apps.issues.urls", "issues"), namespace="issues")),
 ]
