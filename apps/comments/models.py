@@ -48,7 +48,7 @@ class Comment(models.Model):
         issue's project contributors.
         """
 
-        super.clean()
+        super().clean()
 
         if self.issue_id is None or self.author_id is None:
             return

@@ -232,7 +232,9 @@ class IssueSerializerTests(APITestCase):
         request.user = user
 
         serializer = IssueSerializer(context={"request": request, "project": project})
-        self.assertNotIn("project", serializer.fields)
+        self.assertIn("project", serializer.fields)
+        self.assertTrue(serializer.fields["project"].read_only)
+        self.assertFalse(serializer.fields["project"].required)
 
     def test_issue_serializer_disallows_changing_project_on_update(self) -> None:
         """IssueSerializer.update() should reject project changes."""

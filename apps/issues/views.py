@@ -79,9 +79,8 @@ class IssueViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
-        """Only project contributors can create an issue."""
-        project = serializer.validated_data.get("project")
         user = self.request.user
+        project = serializer.validated_data.get("project") or serializer.context.get("project")
 
         if project is None:
             raise PermissionDenied("Le projet est requis.")
@@ -89,7 +88,7 @@ class IssueViewSet(viewsets.ModelViewSet):
         if not project.is_contributor(user):
             raise PermissionDenied("Vous devez être contributeur du projet.")
 
-        serializer.save()
+        serializer.save(project=project)
 
     @action(detail=True, methods=["get", "post"], url_path="assignees")
     def assignees(self, request, pk=None):

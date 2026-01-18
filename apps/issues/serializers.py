@@ -4,8 +4,10 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from rest_framework import serializers
 
+from apps.comments.serializers import CommentSummarySerializer
 from apps.projects.models import Project
 
 from .models import Issue
@@ -112,6 +114,9 @@ class IssueSerializer(serializers.ModelSerializer):
         queryset=Project.objects.all(), required=False
     )
 
+    comments_count = serializers.SerializerMethodField()
+    commenters = serializers.SerializerMethodField()
+
     class Meta:
         model = Issue
         fields = (
@@ -124,29 +129,59 @@ class IssueSerializer(serializers.ModelSerializer):
             "project",
             "author",
             "assignees",
+            "comments_count",
+            "commenters",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "author", "created_at", "updated_at", "assignees")
+        read_only_fields = (
+            "id",
+            "author",
+            "created_at",
+            "updated_at",
+            "assignees",
+            "comments_count",
+            "commenters",
+        )
+
+    def get_comments_count(self, obj: Issue) -> int:
+        return obj.comments.count()
+
+    def get_commenters(self, obj: Issue) -> list[str]:
+        return list(
+            obj.comments.values_list("author__username", flat=True).distinct()
+        )
 
     def __init__(self, *args, **kwargs) -> None:
-        """
-        Nested project context:
-        - Hide 'project' from WRITE forms (POST/PUT/PATCH)
-            so it's not selectable in Browsable API.
-        - Keep 'project' in OUTPUT JSON when an instance exists.
-        """
         super().__init__(*args, **kwargs)
 
         request = self.context.get("request")
-        project = self.context.get("project")
+        nested_project = self.context.get("project")
 
-        is_nested = request is not None and project is not None
-        is_write = request is not None and request.method in ("POST", "PUT", "PATCH")
-        is_input_serializer = self.instance is None  # no instance = form/input mode
+        # 1) Nested endpoint: project comes from URL
+        if request is not None and nested_project is not None:
+            if "project" in self.fields and request.method in ("POST", "PUT", "PATCH"):
+                # keep it in OUTPUT, but remove it from INPUT forms
+                self.fields["project"].read_only = True
+                self.fields["project"].required = False
+            return
 
-        if is_nested and is_write and is_input_serializer:
-            self.fields.pop("project", None)
+        # 2) Global endpoint: user chooses project, but only among visible ones (for GET form)
+        if request is not None and "project" in self.fields and request.user.is_authenticated:
+            user = request.user
+            visible_qs = Project.objects.filter(
+                Q(author=user) | Q(contributors=user)
+            ).distinct()
+
+            # GET/OPTIONS are used to build the Browsable API form dropdown
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                self.fields["project"].queryset = visible_qs
+            else:
+                # POST/PATCH: allow pk to resolve so view can return 403 (not 400)
+                self.fields["project"].queryset = Project.objects.all()
+
+        elif "project" in self.fields:
+            self.fields["project"].queryset = Project.objects.none()
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """

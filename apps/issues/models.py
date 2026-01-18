@@ -88,7 +88,7 @@ class Issue(models.Model):
     )
 
     # Optional: an issue can be assigned to multiple users.
-    # Constraint "assignees must be contributors" will be enforced in the serializer.
+    # Constraint "assignees must be contributors" is enforced in the serializer.
     assignees = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name="issues_assigned",
