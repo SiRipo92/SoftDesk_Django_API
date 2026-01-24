@@ -32,7 +32,7 @@ class LogoutView(GenericAPIView):
             401: OpenApiResponse(description="Refresh token invalide."),
         },
         description="Blackliste le refresh token fourni afin qu'il "
-                    "ne puisse plus être réutilisé.",
+        "ne puisse plus être réutilisé.",
     )
     def post(self, request, *args, **kwargs):
         """
