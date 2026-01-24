@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.db.models import Count, F, Q
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 
 from .permissions import IsSelfOrAdmin
 from .serializers import UserDetailSerializer, UserListSerializer, UserSerializer
@@ -38,12 +39,11 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
 
     def get_permissions(self):
-        """Return permission instances based on the current action."""
         if self.action == "create":
-            return [permissions.AllowAny()]
+            return [AllowAny()]
         if self.action == "list":
-            return [permissions.IsAdminUser()]
-        return [permissions.IsAuthenticated(), IsSelfOrAdmin()]
+            return [IsAuthenticated(), IsAdminUser()]
+        return [IsAuthenticated(), IsSelfOrAdmin()]
 
     def get_serializer_class(self):
         """
@@ -81,8 +81,11 @@ class UserViewSet(viewsets.ModelViewSet):
         )
 
         if self.action == "list":
-            return base_qs.annotate(
-                projects_count=Count("contributed_projects", distinct=True),
+            return (
+                base_qs.annotate(
+                    projects_count=Count("contributed_projects", distinct=True),
+                )
+                .order_by("id")
             )
 
         return base_qs.annotate(

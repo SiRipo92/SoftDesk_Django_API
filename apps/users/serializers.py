@@ -18,6 +18,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.projects.models import Project
@@ -54,7 +55,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     password = serializers.CharField(
         write_only=True,
-        required=False,
+        required=False,  # keep optional for update
+        allow_blank=False,
         min_length=8,
         help_text="Plaintext password (write-only). Hashed before saving.",
     )
@@ -82,16 +84,38 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(exc)) from exc
         return value
 
-    def create(self, validated_data: dict[str, Any]):
-        """Create a User instance with optional password hashing."""
-        password = validated_data.pop("password", None)
-        user = User(**validated_data)
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Enforce password rules:
+        - Create (no instance yet): password is required.
+        - Update (instance exists): password is optional.
+        """
+        attrs = super().validate(attrs)
 
-        if password:
-            user.set_password(password)
+        is_create = self.instance is None
+        if is_create:
+            required_fields = ("username", "email", "birth_date", "password")
+            missing = {field: "Ce champs est requis"
+                       for field in required_fields if not attrs.get(field)}
+
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> User:
+        """
+        Create a User instance via the model manager.
+
+        Why:
+        - Ensures Django's UserManager logic is applied (normalization, password handling).
+        - Prevents bypassing manager-level invariants.
+        - Keeps model validation via your overridden save() calling full_clean().
+        """
+        password = validated_data.pop("password")
 
         try:
-            user.save()
+            user = User.objects.create_user(password=password, **validated_data)
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict) from exc
 
@@ -155,6 +179,7 @@ class UserDetailSerializer(UserSerializer):
             "contributed_projects_preview",
         )
 
+    @extend_schema_field(UserProjectPreviewSerializer(many=True))
     def get_owned_projects_preview(self, obj: User):
         """Return up to 5 recently updated projects owned by the user."""
         qs = (
@@ -165,6 +190,7 @@ class UserDetailSerializer(UserSerializer):
         )
         return UserProjectPreviewSerializer(qs, many=True).data
 
+    @extend_schema_field(UserProjectPreviewSerializer(many=True))
     def get_contributed_projects_preview(self, obj: User):
         """
         Return up to 5 recently updated projects where the user is a contributor.

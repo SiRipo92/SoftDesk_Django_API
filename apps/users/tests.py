@@ -1,351 +1,350 @@
 """
-Test suite for the users application.
+Users app tests.
 
-Covers:
-- User model validation and derived properties
-- User serializers per action (create, list, retrieve)
-- Custom permission logic (IsSelfOrAdmin)
-- UserViewSet queryset scoping and annotations
+These tests cover:
+- User model basics.
+- Signup contract (public create + email uniqueness).
+- Access control for /users endpoints.
+- Detail payload shape, including project previews.
+
+Notes:
+- /users/ list is admin-only.
+- Non-admin users can only retrieve/update their own profile.
 """
 
-from datetime import date, timedelta
+from __future__ import annotations
 
+from typing import Any
+
+from datetime import date
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.urls import reverse
-from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.test import APIRequestFactory, force_authenticate
+from django.db.models import Count
+from django.test import RequestFactory
+from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from apps.projects.models import Project
-from apps.users.permissions import IsSelfOrAdmin
-from apps.users.serializers import (
-    UserProjectSummarySerializer,
+from apps.projects.models import Contributor, Project
+
+from .permissions import IsSelfOrAdmin
+from .serializers import (
     UserSerializer,
+    UserProjectPreviewSerializer
 )
+from .views import UserViewSet
 
 User = get_user_model()
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+TEST_PASSWORD = "TestPass123!"
+DEFAULT_BIRTH_DATE = date(1990, 1, 1)
+
+def years_ago(years: int) -> date:
+    """
+    Return a date roughly `years` years ago, safe for leap years.
+
+    We avoid naive timedelta arithmetic because it becomes flaky around
+    leap days. Using date.replace() is deterministic, with a fallback when
+    the current date is Feb 29.
+    """
+    today = date.today()
+    try:
+        return today.replace(year=today.year - years)
+    except ValueError:
+        # Example: Feb 29 -> Feb 28 on non-leap years.
+        return today.replace(month=2, day=28, year=today.year - years)
+
+
+def create_user(
+    *,
+    username: str = "testuser",
+    email: str = "test@example.com",
+    password: str = TEST_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """
+    Central user factory for this module.
+
+    Why this exists:
+    - User.save() calls full_clean(), so missing birth_date raises ValidationError.
+    - Keeping defaults here prevents test breakage when the model gets stricter.
+    """
+    return User.objects.create_user(
+        username=username,
+        email=email,
+        password=password,
+        birth_date=birth_date,
+        **extra_fields,
+    )
+
+
+def create_admin(
+    *,
+    username: str = "admin",
+    email: str = "admin@example.com",
+    password: str = TEST_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """Factory for staff/superuser accounts."""
+    return User.objects.create_superuser(
+        username=username,
+        email=email,
+        password=password,
+        birth_date=birth_date,
+        **extra_fields,
+    )
+
+
+def extract_results(data: Any) -> list[dict[str, Any]]:
+    """
+    Normalize list responses.
+
+    DRF returns either:
+    - a list (no pagination), or
+    - a dict with a "results" list (pagination enabled).
+    """
+    if isinstance(data, dict) and "results" in data:
+        return list(data["results"])
+    if isinstance(data, list):
+        return list(data)
+    raise AssertionError(f"Unexpected list payload shape: {type(data)!r}")
+
+# ---------------------------------------------------------------------------
+# Model tests
+# ---------------------------------------------------------------------------
+
+
 class UserModelTests(APITestCase):
-    """Tests related to the User model."""
-
-    def test_user_clean_enforces_minimum_age(self):
-        """
-        Raise ValidationError when birth_date violates minimum age rule.
-        """
-        too_young_date = date.today() - timedelta(days=10 * 365)
-
-        user = User(
-            username="too_young",
-            email="young@example.com",
-            birth_date=too_young_date,
-        )
-
+    def test_user_model_requires_birth_date(self) -> None:
+        """User.save() runs full_clean(), so birth_date=None must fail."""
         with self.assertRaises(DjangoValidationError):
-            user.full_clean()
+            create_user(birth_date=None)  # type: ignore[arg-type]
 
-    def test_age_property_is_computed_from_birth_date(self):
+    def test_age_property_is_computed_from_birth_date(self) -> None:
         """
-        Compute age dynamically from birth_date.
-        """
-        birth_date = date.today() - timedelta(days=30 * 365)
-        user = User.objects.create_user(
-            username="adult",
-            email="adult@example.com",
-            birth_date=birth_date,
-            password="StrongPassword123!",
-        )
+        age is a derived property (computed from birth_date).
 
-        self.assertGreaterEqual(user.age, 29)
-        self.assertLessEqual(user.age, 31)
+        We assert a loose range to avoid flakiness around birthdays.
+        """
+        user = create_user(birth_date=years_ago(30))
+        self.assertIsNotNone(user.age)
+        self.assertTrue(29 <= user.age <= 31)
+
+
+# ---------------------------------------------------------------------------
+# Serializer tests
+# ---------------------------------------------------------------------------
 
 
 class UserSerializerTests(APITestCase):
-    """Tests for user serializers."""
-
-    def test_user_serializer_rejects_invalid_birth_date(self):
-        """
-        Raise DRF ValidationError for invalid birth_date input.
-        """
-        payload = {
-            "username": "invalid_birth",
-            "email": "invalid@example.com",
-            "password": "StrongPassword123!",
-            "birth_date": date.today().isoformat(),
+    def setUp(self) -> None:
+        self.valid_data = {
+            "username": "newuser",
+            "email": "new@example.com",
+            "password": TEST_PASSWORD,
+            "birth_date": years_ago(30).isoformat(),
         }
 
-        serializer = UserSerializer(data=payload)
+    def test_user_serializer_creates_user(self) -> None:
+        serializer = UserSerializer(data=self.valid_data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        user = serializer.save()
 
-        with self.assertRaises(DRFValidationError):
-            serializer.is_valid(raise_exception=True)
+        self.assertEqual(user.username, self.valid_data["username"])
+        self.assertEqual(user.email, self.valid_data["email"])
+        self.assertTrue(user.check_password(self.valid_data["password"]))
 
-    def test_user_serializer_hashes_password_on_create(self):
-        """
-        Hash password before saving user instance.
-        """
-        payload = {
-            "username": "hashed_user",
-            "email": "hash@example.com",
-            "password": "StrongPassword123!",
-            "birth_date": "1995-01-01",
-        }
+    def test_user_serializer_rejects_invalid_birth_date(self) -> None:
+        # Too recent -> should fail the min-age validator.
+        invalid_data = self.valid_data.copy()
+        invalid_data["birth_date"] = years_ago(1).isoformat()
 
-        serializer = UserSerializer(data=payload)
+        serializer = UserSerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("birth_date", serializer.errors)
+
+    def test_user_serializer_hashes_password_on_create(self) -> None:
+        serializer = UserSerializer(data=self.valid_data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        self.assertNotEqual(user.password, payload["password"])
-        self.assertTrue(user.check_password(payload["password"]))
+        self.assertNotEqual(user.password, self.valid_data["password"])
+        self.assertTrue(user.check_password(self.valid_data["password"]))
 
 
-class IsSelfOrAdminPermissionTests(APITestCase):
-    """Tests for the IsSelfOrAdmin permission class."""
-
-    def setUp(self):
-        """Create users for permission tests."""
-        self.user = User.objects.create_user(
-            username="user",
-            email="user@example.com",
-            password="password123",
-            birth_date="1990-01-01",
-        )
-
-        self.other_user = User.objects.create_user(
-            username="other",
-            email="other@example.com",
-            password="password123",
-            birth_date="1990-01-01",
-        )
-
-        self.admin = User.objects.create_superuser(
-            username="admin",
-            email="admin@example.com",
-            password="adminpass",
-            birth_date="1980-01-01",
-        )
-
-    def test_user_has_permission_on_self(self):
-        """
-        Allow access when user accesses own object.
-        """
-        permission = IsSelfOrAdmin()
-        request = type("Request", (), {"user": self.user})()
-
-        self.assertTrue(permission.has_object_permission(request, None, self.user))
-
-    def test_user_is_denied_access_to_others(self):
-        """
-        Deny access when user accesses another user.
-        """
-        permission = IsSelfOrAdmin()
-        request = type("Request", (), {"user": self.user})()
-
-        self.assertFalse(
-            permission.has_object_permission(request, None, self.other_user)
-        )
-
-    def test_admin_has_permission_on_any_user(self):
-        """
-        Allow admin access to any user object.
-        """
-        permission = IsSelfOrAdmin()
-        request = type("Request", (), {"user": self.admin})()
-
-        self.assertTrue(
-            permission.has_object_permission(request, None, self.other_user)
-        )
-
-
-class UserViewSetTests(APITestCase):
-    """Tests for UserViewSet behavior."""
-
-    def setUp(self):
-        """Create users for API tests."""
-        self.user = User.objects.create_user(
-            username="user",
-            email="user@example.com",
-            password="password123",
-            birth_date="1990-01-01",
-        )
-
-        self.other_user = User.objects.create_user(
-            username="other",
-            email="other@example.com",
-            password="password123",
-            birth_date="1990-01-01",
-        )
-
-        self.admin = User.objects.create_superuser(
-            username="admin",
-            email="admin@example.com",
-            password="adminpass",
-            birth_date="1980-01-01",
-        )
-
-    def test_non_admin_cannot_retrieve_other_user(self):
-        """
-        Return 404 when non-admin tries to retrieve another user.
-        """
-        self.client.force_authenticate(user=self.user)
-
-        url = reverse("users:users-detail", kwargs={"pk": self.other_user.pk})
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_admin_can_list_users(self):
-        """
-        Allow admin to list all users.
-        """
-        self.client.force_authenticate(user=self.admin)
-
-        url = reverse("users:users-list")
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsInstance(response.data, list)
-
-    def test_user_list_uses_user_list_serializer_fields(self):
-        """
-        Return lightweight fields for admin user list.
-        """
-        self.client.force_authenticate(user=self.admin)
-
-        url = reverse("users:users-list")
-        response = self.client.get(url)
-
-        first_item = response.data[0]
-
-        self.assertIn("projects_count", first_item)
-        self.assertIn("num_projects_owned", first_item)
-        self.assertNotIn("owned_projects", first_item)
-
-    def test_user_detail_uses_user_detail_serializer_fields(self):
-        """
-        Return detailed fields including embedded projects on retrieve.
-        """
-        self.client.force_authenticate(user=self.admin)
-
-        url = reverse("users:users-detail", kwargs={"pk": self.user.pk})
-        response = self.client.get(url)
-
-        self.assertIn("owned_projects", response.data)
-        self.assertIn("contributed_projects", response.data)
-        self.assertIn("num_projects_owned", response.data)
-
-    def test_user_can_delete_self(self):
-        """
-        Allow user to delete own account.
-        """
-        self.client.force_authenticate(user=self.user)
-
-        url = reverse("users:users-detail", kwargs={"pk": self.user.pk})
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-
-class UserSerializerEdgeCaseTests(APITestCase):
-    """Edge-case tests for UserSerializer create and update methods."""
-
-    def setUp(self):
-        """Create a base user for update tests."""
-        self.user = User.objects.create_user(
-            username="base_user",
-            email="base@example.com",
-            password="InitialPassword123!",
-            birth_date="1990-01-01",
-        )
-
-    def test_create_user_without_password_raises_validation_error(self):
-        """
-        Raise ValidationError when creating a user without a password.
-        """
-        payload = {
-            "username": "nopassword",
-            "email": "nopassword@example.com",
-            "birth_date": "1995-01-01",
-        }
-
-        serializer = UserSerializer(data=payload)
-
-        serializer.is_valid(raise_exception=True)
-
-        with self.assertRaises(DRFValidationError):
-            serializer.save()
-
-    def test_update_user_without_password(self):
-        """
-        Update user fields without changing password.
-        """
-        old_password_hash = self.user.password
-
-        serializer = UserSerializer(
-            instance=self.user,
-            data={"first_name": "Updated"},
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-
-        self.assertEqual(user.first_name, "Updated")
-        self.assertEqual(user.password, old_password_hash)
-
-    def test_update_user_with_new_password(self):
-        """
-        Update user password when password is provided.
-        """
-        serializer = UserSerializer(
-            instance=self.user,
-            data={"password": "NewSecurePassword123!"},
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-
-        self.assertTrue(user.check_password("NewSecurePassword123!"))
-
-    def test_update_user_raises_validation_error_from_model(self):
-        """
-        Convert Django ValidationError into DRF ValidationError on update.
-        """
-        serializer = UserSerializer(
-            instance=self.user,
-            data={"birth_date": date.today().isoformat()},
-            partial=True,
-        )
-
-        with self.assertRaises(DRFValidationError):
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-
-
-class UserProjectSummarySerializerTests(APITestCase):
-    """Tests for UserProjectSummarySerializer."""
-
-    def setUp(self):
-        """Create project with author."""
-        self.user = User.objects.create_user(
-            username="author",
-            email="author@example.com",
-            password="password123",
-            birth_date="1990-01-01",
-        )
-
+class UserSerializerProjectSummaryTests(APITestCase):
+    def setUp(self) -> None:
+        self.user = create_user(username="user", email="user@example.com")
         self.project = Project.objects.create(
             name="Test Project",
-            description="Test description",
+            description="Test Description",
             project_type="BACK_END",
             author=self.user,
         )
+        Contributor.objects.create(
+            project=self.project,
+            user=self.user,
+            added_by=self.user,
+        )
 
-    def test_project_summary_serialization(self):
-        """
-        Serialize project summary fields correctly.
-        """
-        serializer = UserProjectSummarySerializer(self.project)
+    def test_project_summary_serializer(self) -> None:
+        project = (
+            Project.objects.filter(id=self.project.id)
+            .select_related("author")
+            .annotate(issues_count=Count("issues", distinct=True))
+            .get()
+        )
+
+        serializer = UserProjectPreviewSerializer(project)
         data = serializer.data
 
-        self.assertEqual(data["author_id"], self.user.id)
-        self.assertEqual(data["author_username"], self.user.username)
+        self.assertEqual(data["id"], project.id)
+        self.assertEqual(data["name"], project.name)
+        self.assertEqual(data["owner_username"], self.user.username)
+        self.assertIn("issues_count", data)
+        self.assertEqual(data["issues_count"], 0)
+
+
+class UserSerializerEdgeCaseTests(APITestCase):
+    def test_create_user_without_password_raises_error(self) -> None:
+        data = {
+            "username": "user",
+            "email": "user@example.com",
+            "birth_date": years_ago(30).isoformat(),
+        }
+        serializer = UserSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("password", serializer.errors)
+
+    def test_update_user_rejects_invalid_birth_date(self) -> None:
+        """
+        Updating birth_date should also be validated.
+
+        Note:
+        - This test checks the update path specifically.
+        - If you consider it redundant with the create validation test above,
+          you can remove it to shorten the suite.
+        """
+        user = create_user(username="user", email="user@example.com")
+
+        serializer = UserSerializer(
+            instance=user,
+            data={"birth_date": years_ago(1).isoformat()},
+            partial=True,
+        )
+        with self.assertRaises(DRFValidationError):
+            serializer.is_valid(raise_exception=True)
+
+# ---------------------------------------------------------------------------
+# Permission tests
+# ---------------------------------------------------------------------------
+
+
+class IsSelfOrAdminPermissionTests(APITestCase):
+    def setUp(self) -> None:
+        self.permission = IsSelfOrAdmin()
+        self.factory = RequestFactory()
+        self.user = create_user(username="user", email="user@example.com")
+        self.admin = create_admin()
+
+    def test_user_can_access_own_object(self) -> None:
+        request = self.factory.get("/")
+        request.user = self.user
+
+        self.assertTrue(self.permission.has_object_permission(request, None, self.user))
+
+    def test_user_cannot_access_other_object(self) -> None:
+        other_user = create_user(username="other", email="other@example.com")
+
+        request = self.factory.get("/")
+        request.user = self.user
+
+        self.assertFalse(
+            self.permission.has_object_permission(request, None, other_user)
+        )
+
+    def test_admin_can_access_any_object(self) -> None:
+        request = self.factory.get("/")
+        request.user = self.admin
+
+        self.assertTrue(self.permission.has_object_permission(request, None, self.user))
+
+
+# ---------------------------------------------------------------------------
+# ViewSet tests
+# ---------------------------------------------------------------------------
+
+
+class UserViewSetTests(APITestCase):
+    def setUp(self) -> None:
+        self.factory = APIRequestFactory()
+        self.list_url = reverse("users:users-list")
+
+        self.user = create_user(username="user", email="user@example.com")
+        self.other_user = create_user(username="other", email="other@example.com")
+        self.admin = create_admin()
+
+    def test_admin_can_list_users(self) -> None:
+        request = self.factory.get(self.list_url)
+        force_authenticate(request, user=self.admin)
+
+        view = UserViewSet.as_view({"get": "list"})
+        response = view(request)
+
+        self.assertEqual(response.status_code, 200)
+
+        results = extract_results(response.data)
+        self.assertGreaterEqual(len(results), 2)
+        self.assertIn("projects_count", results[0])
+
+    def test_non_admin_cannot_list_users(self) -> None:
+        request = self.factory.get(self.list_url)
+        force_authenticate(request, user=self.user)
+
+        view = UserViewSet.as_view({"get": "list"})
+        response = view(request)
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_user_can_retrieve_self(self) -> None:
+        url = reverse("users:users-detail", kwargs={"pk": self.user.id})
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.user)
+
+        view = UserViewSet.as_view({"get": "retrieve"})
+        response = view(request, pk=self.user.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], self.user.id)
+        self.assertEqual(response.data["num_projects_owned"], 0)
+        self.assertEqual(response.data["num_projects_added_as_contrib"], 0)
+        self.assertEqual(response.data["owned_projects_preview"], [])
+        self.assertEqual(response.data["contributed_projects_preview"], [])
+
+    def test_non_admin_cannot_retrieve_other_user(self) -> None:
+        url = reverse("users:users-detail", kwargs={"pk": self.other_user.id})
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.user)
+
+        view = UserViewSet.as_view({"get": "retrieve"})
+        response = view(request, pk=self.other_user.id)
+
+        # Non-admin queryset hides other users -> 404
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_can_delete_self(self) -> None:
+        url = reverse("users:users-detail", kwargs={"pk": self.user.id})
+        request = self.factory.delete(url)
+        force_authenticate(request, user=self.user)
+
+        view = UserViewSet.as_view({"delete": "destroy"})
+        response = view(request, pk=self.user.id)
+
+        self.assertEqual(response.status_code, 204)

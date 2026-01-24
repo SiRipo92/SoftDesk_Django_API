@@ -42,4 +42,5 @@ urlpatterns = [
     path("", include(("apps.users.urls", "users"), namespace="users")),
     path("", include(("apps.projects.urls", "projects"), namespace="projects")),
     path("", include(("apps.issues.urls", "issues"), namespace="issues")),
+    path("api/v1/", include(("apps.comments.urls", "comments"), namespace="comments")),
 ]

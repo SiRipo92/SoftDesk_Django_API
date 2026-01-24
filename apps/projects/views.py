@@ -62,20 +62,31 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Return projects visible to the current user.
 
-        Implementation detail:
-        - Exists() avoids join-based filtering that can distort aggregates.
+        Rules:
+        - staff: all projects
+        - non-staff:
+            - list: only owned projects (author=request.user)
+            - detail/nested: owned OR contributor
         """
         user = self.request.user
         base_qs = Project.objects.all()
 
+        if not getattr(user, "is_authenticated", False):
+            return Project.objects.none()
+
+        action = getattr(self, "action", None)
+
         if not user.is_staff:
-            is_member_qs = Contributor.objects.filter(
-                project_id=OuterRef("pk"),
-                user=user,
-            )
-            base_qs = base_qs.annotate(_is_member=Exists(is_member_qs)).filter(
-                _is_member=True
-            )
+            if action == "list":
+                base_qs = base_qs.filter(author=user)
+            else:
+                is_member_qs = Contributor.objects.filter(
+                    project_id=OuterRef("pk"),
+                    user=user,
+                )
+                base_qs = base_qs.annotate(_is_member=Exists(is_member_qs)).filter(
+                    Q(author=user) | Q(_is_member=True)
+                )
 
         return (
             base_qs.select_related("author")

@@ -87,6 +87,10 @@ SPECTACULAR_SETTINGS = {
             }
         }
     },
+    # OpenAPI 3 "servers" block
+    "SERVERS": [
+        {"url": "http://localhost:8000", "description": "Local"},
+    ],
 }
 
 MIDDLEWARE = [

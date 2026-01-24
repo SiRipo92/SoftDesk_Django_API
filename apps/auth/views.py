@@ -1,10 +1,16 @@
+"""Apps/Auth/views.py for logout function"""
+from __future__ import annotations
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 
+from .serializers import LogoutSerializer
 
-class LogoutView(APIView):
+
+class LogoutView(GenericAPIView):
     """
     Logout endpoint (server-side).
 
@@ -15,8 +21,18 @@ class LogoutView(APIView):
     """
 
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LogoutSerializer
 
-    def post(self, request):
+    @extend_schema(
+        request=LogoutSerializer,
+        responses={
+            205: OpenApiResponse(description="Refresh token blacklisté."),
+            400: OpenApiResponse(description="Refresh token manquant."),
+            401: OpenApiResponse(description="Refresh token invalide."),
+        },
+        description="Blackliste le refresh token fourni afin qu'il ne puisse plus être réutilisé.",
+    )
+    def post(self, request, *args, **kwargs):
         """
         Expect JSON body:
             { "refresh": "<token>" }
@@ -24,12 +40,10 @@ class LogoutView(APIView):
         Returns:
             205 if blacklisted, 400 if missing, 401 if invalid token.
         """
-        refresh = request.data.get("refresh")
-        if not refresh:
-            return Response(
-                {"detail": "refresh token requis"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        refresh = serializer.validated_data["refresh"]
 
         try:
             token = RefreshToken(refresh)

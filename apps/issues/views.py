@@ -49,6 +49,10 @@ class IssueViewSet(
 
     permission_classes = [permissions.IsAuthenticated]
 
+    # Provide a base queryset so drf-spectacular can always resolve the model.
+    # Using `.none()` avoids any accidental DB hit at import time while keeping model metadata.
+    queryset = Issue.objects.none()
+
     # ------------------------------------------------------------------
     # Queryset scope
     # ------------------------------------------------------------------
@@ -60,6 +64,11 @@ class IssueViewSet(
         - staff: all issues
         - non-staff: issues in projects where user is a contributor
         """
+        # drf-spectacular sets this flag during schema generation.
+        # Return a lightweight queryset with the correct model so it can infer path param types.
+        if getattr(self, "swagger_fake_view", False):
+            return Issue.objects.all()
+
         user = self.request.user
 
         qs = Issue.objects.select_related("project", "author")
