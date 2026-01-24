@@ -15,6 +15,7 @@ Assumptions:
 from __future__ import annotations
 
 from datetime import date
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -25,6 +26,7 @@ User = get_user_model()
 
 
 DEFAULT_BIRTH_DATE = date(1990, 1, 1)
+
 
 class AuthEndpointsTests(APITestCase):
     """Covers login/refresh/logout behaviors for the apps.auth app."""
@@ -127,7 +129,9 @@ class AuthEndpointsTests(APITestCase):
         self._auth_with_access_token(tokens["access"])
 
         url = reverse("auth:logout")
-        response = self.client.post(url, {"refresh": "not-a-valid-token"}, format="json")
+        response = self.client.post(
+            url, {"refresh": "not-a-valid-token"}, format="json"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.data.get("detail"), "refresh token invalide")

@@ -61,7 +61,6 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "PAGE_SIZE_QUERY_PARAM": "page_size",
     "MAX_PAGE_SIZE": 100,
-
     # Swagger OpenAPI
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }

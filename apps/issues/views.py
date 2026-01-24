@@ -50,7 +50,8 @@ class IssueViewSet(
     permission_classes = [permissions.IsAuthenticated]
 
     # Provide a base queryset so drf-spectacular can always resolve the model.
-    # Using `.none()` avoids any accidental DB hit at import time while keeping model metadata.
+    # Using `.none()` avoids any accidental DB hit at import time while keeping
+    # model metadata.
     queryset = Issue.objects.none()
 
     # ------------------------------------------------------------------
@@ -65,7 +66,8 @@ class IssueViewSet(
         - non-staff: issues in projects where user is a contributor
         """
         # drf-spectacular sets this flag during schema generation.
-        # Return a lightweight queryset with the correct model so it can infer path param types.
+        # Return a lightweight queryset with the correct model
+        # so it can infer path param types.
         if getattr(self, "swagger_fake_view", False):
             return Issue.objects.all()
 
@@ -101,10 +103,10 @@ class IssueViewSet(
         context = super().get_serializer_context()
 
         if self.action in (
-                "assignees",
-                "remove_assignee",
-                "comments",
-                "comment_detail"
+            "assignees",
+            "remove_assignee",
+            "comments",
+            "comment_detail",
         ):
             context["issue"] = self.get_object()
 
@@ -170,8 +172,8 @@ class IssueViewSet(
         methods=["POST"],
         summary="Assigner un utilisateur à une issue",
         description=(
-                "Le body attend un champ 'user' (id). "
-                "L'utilisateur doit être contributeur du projet."
+            "Le body attend un champ 'user' (id). "
+            "L'utilisateur doit être contributeur du projet."
         ),
         request=IssueAssigneeAddSerializer,
         responses={201: IssueAssigneeReadSerializer},

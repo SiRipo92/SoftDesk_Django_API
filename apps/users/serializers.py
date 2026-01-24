@@ -95,8 +95,11 @@ class UserSerializer(serializers.ModelSerializer):
         is_create = self.instance is None
         if is_create:
             required_fields = ("username", "email", "birth_date", "password")
-            missing = {field: "Ce champs est requis"
-                       for field in required_fields if not attrs.get(field)}
+            missing = {
+                field: "Ce champs est requis"
+                for field in required_fields
+                if not attrs.get(field)
+            }
 
             if missing:
                 raise serializers.ValidationError(missing)
@@ -108,7 +111,8 @@ class UserSerializer(serializers.ModelSerializer):
         Create a User instance via the model manager.
 
         Why:
-        - Ensures Django's UserManager logic is applied (normalization, password handling).
+        - Ensures Django's UserManager logic is applied
+            (normalization, password handling).
         - Prevents bypassing manager-level invariants.
         - Keeps model validation via your overridden save() calling full_clean().
         """

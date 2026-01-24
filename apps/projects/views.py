@@ -118,10 +118,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
 
         if self.action in (
-                "contributors",
-                "remove_contributor",
-                "issues",
-                "issue_detail"
+            "contributors",
+            "remove_contributor",
+            "issues",
+            "issue_detail",
         ):
             context["project"] = self.get_object()
 
@@ -229,7 +229,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project = self.get_object()
 
         write_serializer = self.get_serializer(
-            project, data=request.data, partial=partial)
+            project, data=request.data, partial=partial
+        )
         write_serializer.is_valid(raise_exception=True)
         project = write_serializer.save()
 
@@ -247,9 +248,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         methods=["GET"],
         summary="Lister les contributeurs d'un projet",
         description=(
-                "Retourne les lignes d'adhésion (Contributor) du projet. "
-                "L'auteur du projet peut être présent en base mais peut être "
-                "masqué côté API selon la logique de sérialisation."
+            "Retourne les lignes d'adhésion (Contributor) du projet. "
+            "L'auteur du projet peut être présent en base mais peut être "
+            "masqué côté API selon la logique de sérialisation."
         ),
         responses=ContributorReadSerializer(many=True),
     )
@@ -257,8 +258,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         methods=["POST"],
         summary="Ajouter un contributeur à un projet",
         description=(
-                "Ajoute un contributeur via une clé de recherche : username OU email. "
-                "Retourne la ligne d'adhésion créée."
+            "Ajoute un contributeur via une clé de recherche : username OU email. "
+            "Retourne la ligne d'adhésion créée."
         ),
         request=ContributorCreateSerializer,
         responses={201: ContributorReadSerializer},
@@ -300,8 +301,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Retirer un contributeur d'un projet",
         description=(
-                "Supprime la ligne d'adhésion (Contributor) correspondant à user_id. "
-                "L'auteur du projet ne peut pas être retiré."
+            "Supprime la ligne d'adhésion (Contributor) correspondant à user_id. "
+            "L'auteur du projet ne peut pas être retiré."
         ),
         parameters=[
             OpenApiParameter(
@@ -520,7 +521,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         data.pop("project", None)
 
         serializer = self.get_serializer(
-            issue, data=data, partial=(request.method == "PATCH"))
+            issue, data=data, partial=(request.method == "PATCH")
+        )
         serializer.is_valid(raise_exception=True)
         issue = serializer.save()
         issue = self.get_issue_detail_queryset().get(pk=issue.pk)

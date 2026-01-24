@@ -141,7 +141,8 @@ class IsProjectContributorFromRequestData(BasePermission):
 class IsAuthorOrStaff(BasePermission):
     """Allow access only to the object's author or staff users."""
 
-    message = "Seul l'auteur de cette ressource (ou un administrateur) peut effectuer cette action."
+    message = "Seul l'auteur de cette ressource (ou un administrateur) "\
+              "peut effectuer cette action."
 
     def has_object_permission(self, request, view, obj) -> bool:
         user = request.user

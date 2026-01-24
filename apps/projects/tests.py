@@ -48,6 +48,7 @@ DEFAULT_BIRTH_DATE = date(1990, 1, 1)
 # URL helpers (works with or without a Django include namespace)
 # ---------------------------------------------------------------------------
 
+
 def api_reverse(name: str, kwargs: dict[str, Any] | None = None) -> str:
     """
     Reverse a DRF router name with a fallback if the app is included as namespaced.
@@ -94,6 +95,7 @@ def extract_results(payload: Any) -> list[dict[str, Any]]:
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def create_user(
     *,
     username: str,
@@ -130,7 +132,9 @@ def create_admin(
     )
 
 
-def create_project(*, author: User, name: str, project_type: str = ProjectType.BACK_END) -> Project:
+def create_project(
+    *, author: User, name: str, project_type: str = ProjectType.BACK_END
+) -> Project:
     """
     Create a project and ensure the author is a contributor in DB.
 
@@ -177,9 +181,13 @@ def create_issue_minimal(*, project: Project, author: User) -> Issue:
         if field.default is not models.NOT_PROVIDED:
             continue
 
-        if isinstance(field, models.DateTimeField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
-        if isinstance(field, models.DateField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
 
         if field.null:
@@ -226,6 +234,7 @@ def create_issue_minimal(*, project: Project, author: User) -> Issue:
 # Model tests
 # ---------------------------------------------------------------------------
 
+
 class ProjectModelTests(APITestCase):
     """Unit tests for Project model helpers."""
 
@@ -252,6 +261,7 @@ class ProjectModelTests(APITestCase):
 # Serializer tests
 # ---------------------------------------------------------------------------
 
+
 class ProjectSerializerTests(APITestCase):
     """Tests focused on serializer behavior (not view wiring)."""
 
@@ -262,19 +272,27 @@ class ProjectSerializerTests(APITestCase):
         request.user = actor
 
         serializer = ProjectCreateSerializer(
-            data={"name": "API", "description": "Desc", "project_type": ProjectType.BACK_END},
+            data={
+                "name": "API",
+                "description": "Desc",
+                "project_type": ProjectType.BACK_END,
+            },
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
         project = serializer.save()
 
         self.assertEqual(project.author_id, actor.id)
-        self.assertTrue(Contributor.objects.filter(project=project, user=actor).exists())
+        self.assertTrue(
+            Contributor.objects.filter(project=project, user=actor).exists()
+        )
 
         membership = Contributor.objects.get(project=project, user=actor)
         self.assertEqual(membership.added_by_id, actor.id)
 
-    def test_contributor_create_serializer_requires_exactly_one_lookup_key(self) -> None:
+    def test_contributor_create_serializer_requires_exactly_one_lookup_key(
+        self,
+    ) -> None:
         owner = create_user(username="owner_s", email="owner_s@example.com")
         project = create_project(author=owner, name="PS")
 
@@ -311,6 +329,7 @@ class ProjectSerializerTests(APITestCase):
 # ---------------------------------------------------------------------------
 # Viewset / API tests
 # ---------------------------------------------------------------------------
+
 
 class ProjectViewSetTests(APITestCase):
     """Integration tests for ProjectViewSet endpoints and permissions."""
@@ -377,7 +396,9 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.data.get("contributors", []), [])
 
         project_id = resp.data["id"]
-        self.assertTrue(Contributor.objects.filter(project_id=project_id, user=self.owner).exists())
+        self.assertTrue(
+            Contributor.objects.filter(project_id=project_id, user=self.owner).exists()
+        )
 
     # -------------------------
     # /projects/{id}/ retrieve/update/delete
@@ -402,7 +423,9 @@ class ProjectViewSetTests(APITestCase):
         resp = self.client.get(url)
 
         # Depending on queryset scoping, 404 is acceptable to avoid leaking existence
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )
 
     def test_update_allowed_for_owner_or_staff_only(self) -> None:
         url = api_reverse("projects-detail", kwargs={"pk": self.p_owned.id})
@@ -459,19 +482,27 @@ class ProjectViewSetTests(APITestCase):
         url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
 
         self.client.force_authenticate(user=self.contrib)
-        resp = self.client.post(url, data={"username": newcomer.username}, format="json")
+        resp = self.client.post(
+            url, data={"username": newcomer.username}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
         self.client.force_authenticate(user=self.owner)
-        resp = self.client.post(url, data={"username": newcomer.username}, format="json")
+        resp = self.client.post(
+            url, data={"username": newcomer.username}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Contributor.objects.filter(project=self.p_owned, user=newcomer).exists())
+        self.assertTrue(
+            Contributor.objects.filter(project=self.p_owned, user=newcomer).exists()
+        )
 
     def test_contributors_post_rejects_both_username_and_email(self) -> None:
         url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
 
         self.client.force_authenticate(user=self.owner)
-        resp = self.client.post(url, data={"username": "x", "email": "x@example.com"}, format="json")
+        resp = self.client.post(
+            url, data={"username": "x", "email": "x@example.com"}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     # -------------------------
@@ -502,10 +533,13 @@ class ProjectViewSetTests(APITestCase):
         resp = self.client.delete(url)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertFalse(Contributor.objects.filter(project=self.p_owned, user=self.contrib).exists())
+        self.assertFalse(
+            Contributor.objects.filter(project=self.p_owned, user=self.contrib).exists()
+        )
 
     # -------------------------
-    # /projects/{id}/issues/ + /projects/{id}/issues/{issue_id}/ (permission smoke tests)
+    # /projects/{id}/issues/ + /projects/{id}/issues/{issue_id}/
+    # (permission smoke tests)
     # -------------------------
 
     def test_issues_list_allowed_for_contributor(self) -> None:
@@ -522,7 +556,9 @@ class ProjectViewSetTests(APITestCase):
         url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
         resp = self.client.get(url)
 
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )
 
     def test_issues_post_rejects_mismatched_project_in_payload(self) -> None:
         """
@@ -552,5 +588,7 @@ class ProjectViewSetTests(APITestCase):
         # staff allowed
         self.client.force_authenticate(user=self.admin)
         resp = self.client.patch(url, data={"title": "Updated by admin"}, format="json")
-        self.assertIn(resp.status_code, (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST))
+        self.assertIn(
+            resp.status_code, (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST)
+        )
         self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

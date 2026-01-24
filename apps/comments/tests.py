@@ -6,7 +6,7 @@ Coverage targets:
   - Comment.clean()/save() contributor validation
 - serializers.py
   - CommentWriteSerializer.create() context requirements + model error surfacing
-  - CommentSummarySerializer / CommentDetailSerializer / CommentAdminListSerializer (smoke)
+  - CommentSummarySerializer / CommentDetailSerializer / CommentAdminListSerializer
 - views.py
   - /comments/ list admin-only
   - /comments/{uuid}/ retrieve/update/delete author-or-staff only
@@ -25,7 +25,7 @@ from django.test import RequestFactory
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIRequestFactory, APITestCase
+from rest_framework.test import APITestCase
 
 from apps.issues.models import Issue
 from apps.projects.models import Contributor, Project
@@ -47,6 +47,7 @@ DEFAULT_BIRTH_DATE = date(1990, 1, 1)
 # ---------------------------------------------------------------------------
 # URL helpers
 # ---------------------------------------------------------------------------
+
 
 def api_reverse(name: str, kwargs: dict[str, Any] | None = None) -> str:
     """
@@ -91,6 +92,7 @@ def extract_results(payload: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
+
 
 def create_user(
     *,
@@ -149,9 +151,13 @@ def create_project_minimal(*, author: User) -> Project:
         if field.default is not models.NOT_PROVIDED:
             continue
 
-        if isinstance(field, models.DateTimeField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
-        if isinstance(field, models.DateField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
 
         if field.null:
@@ -202,7 +208,9 @@ def create_issue_minimal(*, project: Project, author: User) -> Issue:
     Ensures issue.author is a project contributor to satisfy Issue validation.
     """
     if not project.contributors.filter(pk=author.pk).exists():
-        Contributor.objects.create(project=project, user=author, added_by=project.author)
+        Contributor.objects.create(
+            project=project, user=author, added_by=project.author
+        )
 
     issue_kwargs: dict[str, Any] = {"project": project, "author": author}
 
@@ -218,9 +226,13 @@ def create_issue_minimal(*, project: Project, author: User) -> Issue:
         if field.default is not models.NOT_PROVIDED:
             continue
 
-        if isinstance(field, models.DateTimeField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
-        if isinstance(field, models.DateField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
 
         if field.null:
@@ -261,13 +273,17 @@ def create_issue_minimal(*, project: Project, author: User) -> Issue:
     return Issue.objects.create(**issue_kwargs)
 
 
-def create_comment(*, issue: Issue, author: User, description: str = "Hello") -> Comment:
+def create_comment(
+    *, issue: Issue, author: User, description: str = "Hello"
+) -> Comment:
     """
     Create a Comment (requires author to be a project contributor).
     """
     project = issue.project
     if not project.contributors.filter(pk=author.pk).exists():
-        Contributor.objects.create(project=project, user=author, added_by=project.author)
+        Contributor.objects.create(
+            project=project, user=author, added_by=project.author
+        )
 
     return Comment.objects.create(issue=issue, author=author, description=description)
 
@@ -275,6 +291,7 @@ def create_comment(*, issue: Issue, author: User, description: str = "Hello") ->
 # ---------------------------------------------------------------------------
 # Model tests
 # ---------------------------------------------------------------------------
+
 
 class CommentModelTests(APITestCase):
     """Unit tests for Comment model validation rules."""
@@ -305,6 +322,7 @@ class CommentModelTests(APITestCase):
 # ---------------------------------------------------------------------------
 # Serializer tests
 # ---------------------------------------------------------------------------
+
 
 class CommentSerializerTests(APITestCase):
     """Serializer behavior tests (not view wiring)."""
@@ -354,7 +372,14 @@ class CommentSerializerTests(APITestCase):
         comment = create_comment(issue=issue, author=owner, description="Hi")
 
         data = CommentSummarySerializer(comment).data
-        for key in ("uuid", "description", "author_id", "author_username", "created_at", "updated_at"):
+        for key in (
+            "uuid",
+            "description",
+            "author_id",
+            "author_username",
+            "created_at",
+            "updated_at",
+        ):
             self.assertIn(key, data)
 
     def test_comment_detail_serializer_smoke(self) -> None:
@@ -403,6 +428,7 @@ class CommentSerializerTests(APITestCase):
 # Viewset / API tests
 # ---------------------------------------------------------------------------
 
+
 class CommentViewSetTests(APITestCase):
     """Integration tests for /comments/ endpoints and permissions."""
 
@@ -417,13 +443,19 @@ class CommentViewSetTests(APITestCase):
 
         self.issue = create_issue_minimal(project=self.project, author=self.owner)
 
-        self.comment_owner = create_comment(issue=self.issue, author=self.owner, description="Owner")
-        self.comment_other = create_comment(issue=self.issue, author=self.other, description="Other")
+        self.comment_owner = create_comment(
+            issue=self.issue, author=self.owner, description="Owner"
+        )
+        self.comment_other = create_comment(
+            issue=self.issue, author=self.other, description="Other"
+        )
 
         # Another project/comment for admin list coverage
         other_project = create_project_minimal(author=self.other)
         other_issue = create_issue_minimal(project=other_project, author=self.other)
-        self.comment_elsewhere = create_comment(issue=other_issue, author=self.other, description="Else")
+        self.comment_elsewhere = create_comment(
+            issue=other_issue, author=self.other, description="Else"
+        )
 
     # -------------------------
     # /comments/ list (admin only)
@@ -461,7 +493,10 @@ class CommentViewSetTests(APITestCase):
             self.assertIn(key, sample)
 
     def test_post_not_exposed_on_comments_root(self) -> None:
-        """POST /comments/ must not exist (creation happens via nested issues endpoint)."""
+        """
+        POST /comments/ must not exist
+        (creation happens via nested issues endpoint).
+        """
         url = api_reverse("comments:comments-list")
 
         self.client.force_authenticate(user=self.admin)
@@ -473,7 +508,9 @@ class CommentViewSetTests(APITestCase):
     # -------------------------
 
     def test_retrieve_allowed_for_author_or_admin(self) -> None:
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)})
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+        )
 
         self.client.force_authenticate(user=self.owner)
         resp = self.client.get(url)
@@ -484,16 +521,22 @@ class CommentViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_retrieve_denied_for_non_author_non_admin(self) -> None:
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)})
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+        )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.get(url)
 
         # With queryset scoping, this is typically 404 (preferred).
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )
 
     def test_patch_allowed_for_author_or_admin(self) -> None:
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)})
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+        )
 
         self.client.force_authenticate(user=self.owner)
         resp = self.client.patch(url, data={"description": "Updated"}, format="json")
@@ -501,37 +544,55 @@ class CommentViewSetTests(APITestCase):
         self.assertEqual(resp.data["description"], "Updated")
 
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.patch(url, data={"description": "Admin update"}, format="json")
+        resp = self.client.patch(
+            url, data={"description": "Admin update"}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["description"], "Admin update")
 
     def test_patch_denied_for_non_author_non_admin(self) -> None:
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)})
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+        )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.patch(url, data={"description": "Nope"}, format="json")
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )
 
     def test_delete_allowed_for_author_or_admin(self) -> None:
         # Author delete
-        comment = create_comment(issue=self.issue, author=self.owner, description="Del1")
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(comment.uuid)})
+        comment = create_comment(
+            issue=self.issue, author=self.owner, description="Del1"
+        )
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(comment.uuid)}
+        )
 
         self.client.force_authenticate(user=self.owner)
         resp = self.client.delete(url)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
         # Admin delete
-        comment2 = create_comment(issue=self.issue, author=self.other, description="Del2")
-        url2 = api_reverse("comments:comments-detail", kwargs={"uuid": str(comment2.uuid)})
+        comment2 = create_comment(
+            issue=self.issue, author=self.other, description="Del2"
+        )
+        url2 = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(comment2.uuid)}
+        )
 
         self.client.force_authenticate(user=self.admin)
         resp = self.client.delete(url2)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_delete_denied_for_non_author_non_admin(self) -> None:
-        url = api_reverse("comments:comments-detail", kwargs={"uuid": str(self.comment_other.uuid)})
+        url = api_reverse(
+            "comments:comments-detail", kwargs={"uuid": str(self.comment_other.uuid)}
+        )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.delete(url)
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )

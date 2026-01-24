@@ -14,25 +14,21 @@ Notes:
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
-from datetime import date
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework.exceptions import ValidationError as DRFValidationError
-from rest_framework.test import APIRequestFactory, force_authenticate
 from django.db.models import Count
 from django.test import RequestFactory
 from django.urls import reverse
-from rest_framework.test import APITestCase
+from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.test import APIRequestFactory, APITestCase, force_authenticate
 
 from apps.projects.models import Contributor, Project
 
 from .permissions import IsSelfOrAdmin
-from .serializers import (
-    UserSerializer,
-    UserProjectPreviewSerializer
-)
+from .serializers import UserProjectPreviewSerializer, UserSerializer
 from .views import UserViewSet
 
 User = get_user_model()
@@ -43,6 +39,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 TEST_PASSWORD = "TestPass123!"
 DEFAULT_BIRTH_DATE = date(1990, 1, 1)
+
 
 def years_ago(years: int) -> date:
     """
@@ -115,6 +112,7 @@ def extract_results(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return list(data)
     raise AssertionError(f"Unexpected list payload shape: {type(data)!r}")
+
 
 # ---------------------------------------------------------------------------
 # Model tests
@@ -241,6 +239,7 @@ class UserSerializerEdgeCaseTests(APITestCase):
         )
         with self.assertRaises(DRFValidationError):
             serializer.is_valid(raise_exception=True)
+
 
 # ---------------------------------------------------------------------------
 # Permission tests

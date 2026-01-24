@@ -20,4 +20,6 @@ class IsIssueAuthor(IsAuthorOrReadOnly):
     - IssueViewSet uses this for update/delete and assignee mutations.
     """
 
-    message = "Seul l'auteur de l'issue (ou un administrateur) peut effectuer cette action."
+    message = (
+        "Seul l'auteur de l'issue (ou un administrateur) peut effectuer cette action."
+    )

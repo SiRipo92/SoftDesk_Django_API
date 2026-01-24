@@ -1,4 +1,5 @@
 """Apps/Auth/views.py for logout function"""
+
 from __future__ import annotations
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -30,7 +31,8 @@ class LogoutView(GenericAPIView):
             400: OpenApiResponse(description="Refresh token manquant."),
             401: OpenApiResponse(description="Refresh token invalide."),
         },
-        description="Blackliste le refresh token fourni afin qu'il ne puisse plus être réutilisé.",
+        description="Blackliste le refresh token fourni afin qu'il "
+                    "ne puisse plus être réutilisé.",
     )
     def post(self, request, *args, **kwargs):
         """

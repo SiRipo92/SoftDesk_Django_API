@@ -50,6 +50,7 @@ DEFAULT_BIRTH_DATE = date(1990, 1, 1)
 # URL helpers (works with or without namespace includes)
 # ---------------------------------------------------------------------------
 
+
 def api_reverse(name: str, kwargs: dict[str, Any] | None = None) -> str:
     """
     Reverse a DRF router name with fallbacks.
@@ -93,6 +94,7 @@ def extract_results(payload: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
+
 
 def create_user(
     *,
@@ -163,7 +165,9 @@ def create_issue(*, project: Project, author: User, title: str = "Issue") -> Iss
     author must be a project contributor.
     """
     if not project.contributors.filter(pk=author.pk).exists():
-        Contributor.objects.create(project=project, user=author, added_by=project.author)
+        Contributor.objects.create(
+            project=project, user=author, added_by=project.author
+        )
 
     issue = Issue.objects.create(
         project=project,
@@ -202,9 +206,13 @@ def create_comment_minimal(*, issue: Issue, author: User) -> Comment:
         if field.default is not models.NOT_PROVIDED:
             continue
 
-        if isinstance(field, models.DateTimeField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
-        if isinstance(field, models.DateField) and (field.auto_now or field.auto_now_add):
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
             continue
 
         if field.null:
@@ -250,6 +258,7 @@ def create_comment_minimal(*, issue: Issue, author: User) -> Comment:
 # Model tests
 # ---------------------------------------------------------------------------
 
+
 class IssueModelTests(APITestCase):
     """Unit tests for Issue model validation rules."""
 
@@ -277,6 +286,7 @@ class IssueModelTests(APITestCase):
 # ---------------------------------------------------------------------------
 # Serializer tests
 # ---------------------------------------------------------------------------
+
 
 class IssueSerializerTests(APITestCase):
     """Serializer behavior tests (not view wiring)."""
@@ -319,7 +329,7 @@ class IssueSerializerTests(APITestCase):
                 "description": "",
                 "priority": "",
                 "tag": "",
-                "status": IssueStatus.TODO
+                "status": IssueStatus.TODO,
             },
             context={"request": req, "project": project, "author": stranger},
         )
@@ -404,6 +414,7 @@ class IssueSerializerTests(APITestCase):
 # Viewset / API tests
 # ---------------------------------------------------------------------------
 
+
 class IssueViewSetTests(APITestCase):
     """Integration tests for /issues/ endpoints and nested actions."""
 
@@ -417,13 +428,19 @@ class IssueViewSetTests(APITestCase):
         self.project_1 = create_project(author=self.owner, name="P1")
         add_contributor(project=self.project_1, user=self.contrib, added_by=self.owner)
 
-        self.issue_owner = create_issue(project=self.project_1, author=self.owner, title="I1")
-        self.issue_contrib = create_issue(project=self.project_1, author=self.contrib, title="I2")
+        self.issue_owner = create_issue(
+            project=self.project_1, author=self.owner, title="I1"
+        )
+        self.issue_contrib = create_issue(
+            project=self.project_1, author=self.contrib, title="I2"
+        )
 
         # Project 2: hidden from owner/contrib
         other_owner = create_user(username="other", email="other@example.com")
         self.project_2 = create_project(author=other_owner, name="P2")
-        self.issue_hidden = create_issue(project=self.project_2, author=other_owner, title="H1")
+        self.issue_hidden = create_issue(
+            project=self.project_2, author=other_owner, title="H1"
+        )
 
     # -------------------------
     # /issues/ list
@@ -465,7 +482,9 @@ class IssueViewSetTests(APITestCase):
         resp = self.client.get(url)
 
         # Queryset filtering generally yields 404 (no leakage).
-        self.assertIn(resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        )
 
     # -------------------------
     # update/delete permissions
@@ -490,7 +509,9 @@ class IssueViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_delete_only_issue_author_or_staff(self) -> None:
-        issue = create_issue(project=self.project_1, author=self.owner, title="ToDelete")
+        issue = create_issue(
+            project=self.project_1, author=self.owner, title="ToDelete"
+        )
         url = api_reverse("issues:issues-detail", kwargs={"pk": issue.id})
 
         self.client.force_authenticate(user=self.contrib)
@@ -617,5 +638,7 @@ class IssueViewSetTests(APITestCase):
 
         # Staff -> ok (200)
         self.client.force_authenticate(user=self.admin)
-        resp = self.client.patch(url, data={"description": "Updated by staff"}, format="json")
+        resp = self.client.patch(
+            url, data={"description": "Updated by staff"}, format="json"
+        )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)

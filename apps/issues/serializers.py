@@ -222,8 +222,8 @@ class IssueListSerializer(AssignedUserIdsMixin, serializers.ModelSerializer):
 
 
 class IssuePreviewInProjectSerializer(
-    AssignedUserIdsMixin,
-    serializers.ModelSerializer):
+    AssignedUserIdsMixin, serializers.ModelSerializer
+):
     """
     Embedded preview inside Project detail (/projects/{id}/).
 
@@ -353,10 +353,9 @@ class IssueDetailSerializer(serializers.ModelSerializer):
 
     def get_comments_preview(self, obj: Issue) -> list[dict[str, Any]]:
         """Return the most recent comments with a limited payload."""
-        qs = (
-            obj.comments.select_related("author")
-            .order_by("-created_at")[:COMMENTS_PREVIEW_LIMIT]
-        )
+        qs = obj.comments.select_related("author").order_by("-created_at")[
+            :COMMENTS_PREVIEW_LIMIT
+        ]
         return CommentSummarySerializer(qs, many=True, context=self.context).data
 
     def get_comments_count(self, obj: Issue) -> int:

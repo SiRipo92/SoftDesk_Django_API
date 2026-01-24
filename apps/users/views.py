@@ -76,17 +76,16 @@ class UserViewSet(viewsets.ModelViewSet):
         if not request_user.is_authenticated:
             return User.objects.none()
 
-        base_qs = User.objects.all() if request_user.is_staff else User.objects.filter(
-            id=request_user.id
+        base_qs = (
+            User.objects.all()
+            if request_user.is_staff
+            else User.objects.filter(id=request_user.id)
         )
 
         if self.action == "list":
-            return (
-                base_qs.annotate(
-                    projects_count=Count("contributed_projects", distinct=True),
-                )
-                .order_by("id")
-            )
+            return base_qs.annotate(
+                projects_count=Count("contributed_projects", distinct=True),
+            ).order_by("id")
 
         return base_qs.annotate(
             num_projects_owned=Count("owned_projects", distinct=True),
