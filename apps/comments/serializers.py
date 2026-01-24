@@ -2,71 +2,112 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from apps.issues.models import Issue
 from .models import Comment
+
+User = get_user_model()
+
+
+# ------------------------------------------------------------------
+# Summarized (nested) comment views inside Issue
+# ------------------------------------------------------------------
 
 
 class CommentSummarySerializer(serializers.ModelSerializer):
-    """Compact representation for embedding inside Issue responses."""
+    """
+    Small, stable representation used for:
+    - embedded comments inside IssueDetailSerializer
+    - issue-scoped comment list (/issues/{id}/comments/)
+    """
+
     author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_username = serializers.CharField(source="author.username", read_only=True)
 
     class Meta:
         model = Comment
-        fields = ("uuid", "description", "author_id", "author_username", "created_at", "updated_at")
+        fields = (
+            "uuid",
+            "description",
+            "author_id",
+            "author_username",
+            "created_at",
+            "updated_at",
+        )
         read_only_fields = fields
 
 
-class CommentSerializer(serializers.ModelSerializer):
+# ------------------------------------------------------------------
+# READ view for comment details
+# ------------------------------------------------------------------
+
+
+class CommentDetailSerializer(serializers.ModelSerializer):
     """
-    Comment CRUD serializer.
-
-    Rules:
-    - author is forced from request.user
-    - user must be contributor of issue.project (enforced again in view to return 403)
+    Full read-only comment payload (detail endpoint).
+    Includes extra context so the payload is self-explanatory.
     """
 
-    author = serializers.PrimaryKeyRelatedField(read_only=True)
+    author_id = serializers.IntegerField(source="author.id", read_only=True)
+    author_username = serializers.CharField(source="author.username", read_only=True)
+    author_email = serializers.EmailField(source="author.email", read_only=True)
 
-    # keep global creation possible:
-    issue = serializers.PrimaryKeyRelatedField(queryset=Issue.objects.all(), required=True)
+    issue_id = serializers.IntegerField(source="issue.id", read_only=True)
+    issue_title = serializers.CharField(source="issue.title", read_only=True)
+    project_id = serializers.IntegerField(source="issue.project.id", read_only=True)
+    project_name = serializers.CharField(source="issue.project.name", read_only=True)
 
     class Meta:
         model = Comment
-        fields = ("uuid", "description", "issue", "author", "created_at", "updated_at")
-        read_only_fields = ("uuid", "author", "created_at", "updated_at")
+        fields = (
+            "uuid",
+            "description",
+            "issue_id",
+            "issue_title",
+            "project_id",
+            "project_name",
+            "author_id",
+            "author_username",
+            "author_email",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
 
-    def __init__(self, *args, **kwargs) -> None:
-        """
-        Browsable API dropdown: limit visible issues on GET/OPTIONS.
-        Avoid blocking POST with 400 when user tries an issue they can't access;
-        authorization should produce 403 from the view.
-        """
-        super().__init__(*args, **kwargs)
 
-        request = self.context.get("request")
-        if request is None or "issue" not in self.fields:
-            return
+# ------------------------------------------------------------------
+# Write view for posting/editing/deleting comments
+# ------------------------------------------------------------------
 
-        if not request.user.is_authenticated:
-            self.fields["issue"].queryset = Issue.objects.none()
-            return
 
-        if request.method in ("GET", "HEAD", "OPTIONS"):
-            user = request.user
-            self.fields["issue"].queryset = (
-                Issue.objects.filter(project__contributors=user)
-                .distinct()
-                .order_by("-updated_at")
-            )
+class CommentWriteSerializer(serializers.ModelSerializer):
+    """
+    Write serializer for comment create/update.
+
+    IMPORTANT:
+    - We do NOT expose `issue` in writable fields in nested endpoints.
+    - `issue` is taken from serializer context (provided by the IssueViewSet action).
+    - `author` is always request.user.
+    """
+
+    class Meta:
+        model = Comment
+        fields = ("description",)
 
     def create(self, validated_data: dict[str, Any]) -> Comment:
-        """Create/Add a comment"""
         request = self.context["request"]
-        comment = Comment(author=request.user, **validated_data)
+        issue = self.context.get("issue")
+
+        if issue is None:
+            raise serializers.ValidationError({"detail": "Issue manquant en contexte."})
+
+        comment = Comment(
+            issue=issue,
+            author=request.user,
+            **validated_data,
+        )
 
         try:
             comment.save()
@@ -74,3 +115,37 @@ class CommentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(exc.message_dict) from exc
 
         return comment
+
+
+# ------------------------------------------------------------------
+# READ view for admins for overall comments
+# ------------------------------------------------------------------
+
+
+class CommentAdminListSerializer(serializers.ModelSerializer):
+    """
+    Admin list representation for /comments/.
+
+    Keeps payload smaller than full detail while still giving enough context
+    to audit comments globally.
+    """
+
+    author_id = serializers.IntegerField(source="author.id", read_only=True)
+    author_username = serializers.CharField(source="author.username", read_only=True)
+
+    issue_id = serializers.IntegerField(source="issue.id", read_only=True)
+    project_id = serializers.IntegerField(source="issue.project.id", read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = (
+            "uuid",
+            "description",
+            "project_id",
+            "issue_id",
+            "author_id",
+            "author_username",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields

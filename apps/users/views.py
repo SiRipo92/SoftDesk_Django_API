@@ -1,8 +1,23 @@
-from django.contrib.auth import get_user_model
-from django.db.models import Count, F, Prefetch, Q
-from rest_framework import permissions, viewsets
+"""
+Users app views.
 
-from apps.projects.models import Project
+Endpoints:
+- POST /users/        Public signup
+- GET  /users/        Admin-only list
+- GET  /users/{id}/   Self or admin
+- PATCH/PUT /users/{id}/  Self or admin
+- DELETE /users/{id}/     Self or admin
+
+Notes:
+- Related collections (projects, issues, comments) are exposed through their own
+  resources and nested endpoints in their respective apps.
+"""
+
+from __future__ import annotations
+
+from django.contrib.auth import get_user_model
+from django.db.models import Count, F, Q
+from rest_framework import permissions, viewsets
 
 from .permissions import IsSelfOrAdmin
 from .serializers import UserDetailSerializer, UserListSerializer, UserSerializer
@@ -11,10 +26,19 @@ User = get_user_model()
 
 
 class UserViewSet(viewsets.ModelViewSet):
+    """
+    User CRUD with strict visibility rules.
+
+    Access rules:
+    - create: public (signup)
+    - list: admin-only
+    - retrieve/update/destroy: authenticated + (self or admin)
+    """
+
     queryset = User.objects.all()
 
     def get_permissions(self):
-        """Validates user permissions"""
+        """Return permission instances based on the current action."""
         if self.action == "create":
             return [permissions.AllowAny()]
         if self.action == "list":
@@ -23,11 +47,11 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         """
-        Select serializer based on action:
+        Select a serializer based on the current action.
 
-        - create/update: UserSerializer (handles password hashing, validation)
-        - list (admin): UserListSerializer (light + projects_count)
-        - retrieve: UserDetailSerializer (includes embedded projects list)
+        - list: admin overview serializer
+        - retrieve: user detail serializer (profile + counters + previews)
+        - create/update: base user serializer (write-capable)
         """
         if self.action == "list":
             return UserListSerializer
@@ -37,25 +61,31 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Queryset rules:
-        - staff: can see everyone
-        - non-staff: can only see themselves
+        Scope the queryset and annotate summary counters.
 
-        Adds summary counters for both list + retrieve:
-        - num_projects_owned
-        - num_projects_added_as_contrib
+        Visibility:
+        - staff: all users
+        - non-staff: only the authenticated user's record
 
-        For admin list:
-        - also annotate projects_count (existing behavior)
+        Annotations:
+        - list: projects_count (admin overview)
+        - detail: num_projects_owned, num_projects_added_as_contrib
         """
-        user = self.request.user
+        request_user = self.request.user
 
-        base_qs = (
-            User.objects.all() if user.is_staff else User.objects.filter(id=user.id)
+        if not request_user.is_authenticated:
+            return User.objects.none()
+
+        base_qs = User.objects.all() if request_user.is_staff else User.objects.filter(
+            id=request_user.id
         )
 
-        # The summaries are in BOTH list and retrieve, so always annotated.
-        qs = base_qs.annotate(
+        if self.action == "list":
+            return base_qs.annotate(
+                projects_count=Count("contributed_projects", distinct=True),
+            )
+
+        return base_qs.annotate(
             num_projects_owned=Count("owned_projects", distinct=True),
             num_projects_added_as_contrib=Count(
                 "project_memberships",
@@ -63,27 +93,3 @@ class UserViewSet(viewsets.ModelViewSet):
                 distinct=True,
             ),
         )
-
-        # Optimization: useful for retrieve (detail)
-        if self.action == "retrieve":
-            qs = qs.prefetch_related(
-                Prefetch(
-                    "owned_projects",
-                    queryset=Project.objects.select_related("author").order_by(
-                        "-updated_at"
-                    ),
-                ),
-                Prefetch(
-                    "contributed_projects",
-                    queryset=Project.objects.select_related("author").order_by(
-                        "-updated_at"
-                    ),
-                ),
-            )
-
-        if self.action == "list":
-            return qs.annotate(
-                projects_count=Count("contributed_projects", distinct=True)
-            )
-
-        return qs

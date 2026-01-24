@@ -1,50 +1,72 @@
 from __future__ import annotations
 
-from rest_framework import permissions, viewsets
-from rest_framework.exceptions import PermissionDenied
+from django.db.models import QuerySet
+from rest_framework import mixins, permissions, viewsets
 
 from .models import Comment
-from .permissions import IsCommentAuthor
-from .serializers import CommentSerializer
+from .permissions import IsCommentAuthorOrStaff
+from .serializers import (
+    CommentAdminListSerializer,
+    CommentDetailSerializer,
+    CommentWriteSerializer,
+)
 
 
-class CommentViewSet(viewsets.ModelViewSet):
+class CommentViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     """
-    Global comments endpoint.
+    Global comments endpoint (admin-oriented).
 
-    - list: only comments created by the logged-in user
-    - retrieve: only their own comments
-    - create: only if user is contributor of issue.project
-    - update/delete: only comment author
+    Routes:
+    - GET    /comments/          -> admin only, all comments newest->oldest
+    - GET    /comments/{uuid}/   -> author or admin
+    - PATCH  /comments/{uuid}/   -> author or admin
+    - DELETE /comments/{uuid}/   -> author or admin
+
+    Note:
+    - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+      Comment creation happens via: POST /issues/{issue_id}/comments/
     """
 
-    serializer_class = CommentSerializer
-    permission_classes = [permissions.IsAuthenticated]
     lookup_field = "uuid"
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Comment]:
         user = self.request.user
-        return (
-            Comment.objects.select_related("issue", "issue__project", "author")
-            .filter(author=user, issue__project__contributors=user)
-            .order_by("-updated_at")
-        )
+
+        qs = Comment.objects.select_related(
+            "author", "issue", "issue__project"
+        ).order_by("-created_at")
+
+        if user.is_staff:
+            return qs
+
+        # Non-staff: only their own comments (defensive scoping)
+        return qs.filter(author=user)
 
     def get_permissions(self):
-        if self.action in ("update", "partial_update", "destroy"):
-            return [permissions.IsAuthenticated(), IsCommentAuthor()]
+        # Admin-only global listing
+        if self.action == "list":
+            return [permissions.IsAdminUser()]
+
+        # Detail/write: author or admin
+        if self.action in ("retrieve", "update", "partial_update", "destroy"):
+            return [permissions.IsAuthenticated(), IsCommentAuthorOrStaff()]
+
         return [permissions.IsAuthenticated()]
 
-    def perform_create(self, serializer):
-        issue = serializer.validated_data.get("issue")
-        user = self.request.user
+    def get_serializer_class(self):
+        if self.action == "list":
+            return CommentAdminListSerializer
 
-        if issue is None:
-            raise PermissionDenied("L'issue est requis.")
+        if self.action == "retrieve":
+            return CommentDetailSerializer
 
-        if not issue.project.is_contributor(user):
-            raise PermissionDenied(
-                "Vous devez être contributeur du projet pour commenter cet issue."
-            )
+        if self.action in ("update", "partial_update"):
+            return CommentWriteSerializer
 
-        serializer.save()
+        return CommentDetailSerializer

@@ -50,6 +50,8 @@ class Issue(models.Model):
 
     Assignees are optional:
     - An issue can have zero, one, or many assigned users.
+    - Stored via IssueAssignee through model to keep assignment metadata
+      (assigned_at, assigned_by).
     """
 
     title = models.CharField(max_length=150)
@@ -89,8 +91,11 @@ class Issue(models.Model):
 
     # Optional: an issue can be assigned to multiple users.
     # Constraint "assignees must be contributors" is enforced in the serializer.
+    # Use a through model to store assigned_at / assigned_by metadata.
     assignees = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
+        through="IssueAssignee",
+        through_fields=("issue", "user"),
         related_name="issues_assigned",
         blank=True,
     )
@@ -112,11 +117,7 @@ class Issue(models.Model):
         if self.project_id is None or self.author_id is None:
             return
 
-        project = self.project
-        author = self.author
-
-        # Business rule: only project contributors can create issues.
-        if not project.is_contributor(author):
+        if not self.project.is_contributor(self.author):
             raise ValidationError(
                 {"author": "L'auteur doit être contributeur du projet."}
             )
@@ -135,3 +136,47 @@ class Issue(models.Model):
     def __str__(self) -> str:
         """Readable label for admin/debug."""
         return self.title
+
+
+class IssueAssignee(models.Model):
+    """
+    Join model between Issue and User that stores assignment metadata.
+    """
+
+    issue = models.ForeignKey(
+        "Issue",
+        on_delete=models.CASCADE,
+        related_name="assignee_links",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="issue_assignment_links",
+    )
+
+    # When the assignment was created
+    assigned_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    # Who performed the assignment (actor). Nullable for backfill / imports.
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="issue_assignments_created",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["issue", "user"],
+                name="uniq_issue_assignee",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["issue"]),
+            models.Index(fields=["user"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.issue_id} -> {self.user_id}"

@@ -1,10 +1,9 @@
 """
-Point d'entrée URL de l'app users.
+Users app URL entrypoint.
 
-On découpe les routes par "surface" :
-- Public : signup / login
-- Auth  : refresh / logout (gestion des tokens)
-- Users : endpoints de compte (me)
+Exposes user CRUD endpoints via DRF router:
+- /users/        (POST public signup, GET admin list)
+- /users/{id}/   (self or admin)
 """
 
 from rest_framework.routers import DefaultRouter
