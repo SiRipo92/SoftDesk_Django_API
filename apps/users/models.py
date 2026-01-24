@@ -63,7 +63,7 @@ class User(AbstractUser):
 
     def clean(self) -> None:
         """
-        Model-level validation (hard to bypass).
+        Model-level validation
 
         Runs via full_clean() (called inside save()).
         """

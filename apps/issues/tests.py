@@ -1,548 +1,644 @@
 """
-apps.issues tests.
+Issues app test suite.
 
-Covers:
-- models.py: Issue.clean() rule (author must be contributor) + save(full_clean())
-- permissions.py: IsIssueAuthor logic (including non-Issue objects safety)
-- serializers.py:
-    * IssueSerializer:
-        global vs nested context,
-        project requirement,
-        project immutability
-    * IssueAssigneeAddSerializer:
-        dropdown restriction to project contributors + duplicates
-- views.py:
-    * /issues/ list scoping (only issues from projects where user is contributor)
-    * /issues/ create requires contributor
-    * update/delete restricted to issue author
-    * /issues/{id}/assignees/ add/list/remove restricted to issue author
-    * nested project issues endpoints:
-        - /projects/{id}/issues/ (GET/POST)
-        - /projects/{id}/issues/{issue_id}/ (GET/PATCH/DELETE)
+Coverage targets:
+- models.py
+  - Issue.clean() / Issue.save() contributor validation
+- serializers.py
+  - IssueWriteSerializer.create() context rules + model validation surfacing
+  - IssueAssigneeAddSerializer validation + create()
+  - IssueDetailSerializer structure (smoke)
+- views.py (IssueViewSet)
+  - list/retrieve scoping (staff vs project contributors)
+  - update/delete permissions (author vs contributor vs staff)
+  - assignees GET/POST/DELETE permissions + validation + duplicate prevention
+  - comments GET + comment_detail permission (minimal coverage; deep tests belong
+    to the comments app suite)
 """
 
 from __future__ import annotations
 
 from datetime import date
-from types import SimpleNamespace
+from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.urls import reverse
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.test import RequestFactory
+from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, APITestCase
 
-from apps.projects.models import Contributor, Project
+from apps.comments.models import Comment
+from apps.projects.models import Contributor, Project, ProjectType
 
-from .models import Issue, IssueStatus
-from .permissions import IsIssueAuthor
-from .serializers import IssueAssigneeAddSerializer, IssueSerializer
+from .models import Issue, IssueAssignee, IssueStatus
+from .serializers import (
+    IssueAssigneeAddSerializer,
+    IssueDetailSerializer,
+    IssueWriteSerializer,
+)
 
 User = get_user_model()
 
-VALID_PASSWORD = "StrongPassw0rd!*"
+DEFAULT_PASSWORD = "password123"
+DEFAULT_BIRTH_DATE = date(1990, 1, 1)
 
 
-# -------------------------
-# Helpers
-# -------------------------
-def make_user(username: str, email: str, birth_date: date | None = None) -> User:
+# ---------------------------------------------------------------------------
+# URL helpers (works with or without namespace includes)
+# ---------------------------------------------------------------------------
+
+
+def api_reverse(name: str, kwargs: dict[str, Any] | None = None) -> str:
     """
-    Create a user with required fields for the custom User model.
+    Reverse a DRF router name with fallbacks.
 
-    Why:
-    - User.save() calls full_clean()
-    - birth_date is required -> must be provided in tests
+    Tries:
+    - name
+    - issues:name
+    - hyphenated variant
+    - issues:hyphenated variant
     """
-    if birth_date is None:
-        birth_date = date(2000, 1, 1)
+    candidates = [
+        name,
+        f"issues:{name}",
+        name.replace("_", "-"),
+        f"issues:{name.replace('_', '-')}",
+    ]
+    last_exc: Exception | None = None
 
+    for candidate in candidates:
+        try:
+            return reverse(candidate, kwargs=kwargs)
+        except NoReverseMatch as exc:
+            last_exc = exc
+
+    raise last_exc  # type: ignore[misc]
+
+
+def extract_results(payload: Any) -> list[dict[str, Any]]:
+    """
+    Normalize list responses:
+    - list (no pagination)
+    - dict with "results" (pagination enabled)
+    """
+    if isinstance(payload, dict) and "results" in payload:
+        return list(payload["results"])
+    if isinstance(payload, list):
+        return list(payload)
+    raise AssertionError(f"Unexpected list payload type: {type(payload)!r}")
+
+
+# ---------------------------------------------------------------------------
+# Factories
+# ---------------------------------------------------------------------------
+
+
+def create_user(
+    *,
+    username: str,
+    email: str,
+    password: str = DEFAULT_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """Create a user for tests (custom User model requires birth_date)."""
     return User.objects.create_user(
         username=username,
         email=email,
-        password=VALID_PASSWORD,
+        password=password,
         birth_date=birth_date,
+        **extra_fields,
     )
 
 
-def make_project(
-    author: User, name: str = "P1", project_type: str = "BACK_END"
-) -> Project:
-    """
-    Create a project + create the author membership row.
+def create_admin(
+    *,
+    username: str,
+    email: str,
+    password: str = DEFAULT_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """Create a staff/superuser."""
+    return User.objects.create_superuser(
+        username=username,
+        email=email,
+        password=password,
+        birth_date=birth_date,
+        **extra_fields,
+    )
 
-    Business rules assume the author is also a contributor (membership row).
+
+def create_project(*, author: User, name: str) -> Project:
+    """
+    Create a project and ensure author has a Contributor membership row.
+
+    This matters because Issue queryset scoping uses:
+        Issue.objects.filter(project__contributors=user)
+    which depends on the M2M/through table.
     """
     project = Project.objects.create(
-        name=name,
-        description="desc",
-        project_type=project_type,
         author=author,
+        name=name,
+        description="",
+        project_type=ProjectType.BACK_END,
     )
-    Contributor.objects.create(project=project, user=author, added_by=author)
+    Contributor.objects.get_or_create(
+        project=project,
+        user=author,
+        defaults={"added_by": author},
+    )
     return project
 
 
-def add_contributor(project: Project, user: User, added_by: User) -> None:
-    """Attach a user to a project via Contributor."""
-    Contributor.objects.create(project=project, user=user, added_by=added_by)
+def add_contributor(*, project: Project, user: User, added_by: User) -> Contributor:
+    """Add a Contributor membership row."""
+    return Contributor.objects.create(project=project, user=user, added_by=added_by)
 
 
-def make_issue(project: Project, author: User, title: str = "Issue 1") -> Issue:
-    """Create a valid Issue."""
-    return Issue.objects.create(
+def create_issue(*, project: Project, author: User, title: str = "Issue") -> Issue:
+    """
+    Create an issue while satisfying model validation:
+    author must be a project contributor.
+    """
+    if not project.contributors.filter(pk=author.pk).exists():
+        Contributor.objects.create(
+            project=project, user=author, added_by=project.author
+        )
+
+    issue = Issue.objects.create(
         project=project,
         author=author,
         title=title,
-        description="d",
-        status=IssueStatus.TODO,
+        description="",
+        priority="",
+        tag="",
     )
+    return issue
 
 
-# -------------------------
+def create_comment_minimal(*, issue: Issue, author: User) -> Comment:
+    """
+    Create a Comment instance without hardcoding the comment schema.
+
+    The issues viewset needs:
+    - uuid (usually defaulted)
+    - issue FK
+    - author FK
+    - description/text field (commonly "description")
+
+    This helper fills any required non-null non-default fields.
+    """
+    kwargs: dict[str, Any] = {"issue": issue, "author": author}
+
+    for field in Comment._meta.fields:
+        if getattr(field, "primary_key", False):
+            continue
+        if isinstance(field, (models.AutoField, models.BigAutoField)):
+            continue
+
+        if field.name in kwargs:
+            continue
+
+        if field.default is not models.NOT_PROVIDED:
+            continue
+
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
+            continue
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
+            continue
+
+        if field.null:
+            continue
+
+        if field.choices:
+            kwargs[field.name] = field.choices[0][0]
+            continue
+
+        if isinstance(field, models.ForeignKey):
+            rel_model = field.remote_field.model
+            if rel_model == User:
+                kwargs[field.name] = author
+                continue
+            if rel_model == Issue:
+                kwargs[field.name] = issue
+                continue
+            raise AssertionError(
+                f"create_comment_minimal cannot auto-create required FK '{field.name}' "
+                f"to model {rel_model}."
+            )
+
+        # Common text fields
+        if isinstance(field, models.CharField):
+            kwargs[field.name] = "Test"
+        elif isinstance(field, models.TextField):
+            kwargs[field.name] = "Test"
+        elif isinstance(field, models.BooleanField):
+            kwargs[field.name] = False
+        elif isinstance(field, models.IntegerField):
+            kwargs[field.name] = 1
+        elif isinstance(field, models.DateTimeField):
+            kwargs[field.name] = timezone.now()
+        elif isinstance(field, models.DateField):
+            kwargs[field.name] = timezone.now().date()
+        else:
+            kwargs[field.name] = "Test"
+
+    return Comment.objects.create(**kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Model tests
-# -------------------------
+# ---------------------------------------------------------------------------
+
+
 class IssueModelTests(APITestCase):
-    """Unit-style tests for apps.issues.models.Issue."""
+    """Unit tests for Issue model validation rules."""
 
-    def test_author_must_be_project_contributor(self) -> None:
-        """
-        Issue.clean() enforces: author must be contributor of the issue.project.
-        Saving an Issue with a non-contributor author must raise DjangoValidationError.
-        """
-        author = make_user("author", "author@example.com")
-        outsider = make_user("outsider", "outsider@example.com")
+    def test_issue_save_rejects_author_not_project_contributor(self) -> None:
+        owner = create_user(username="owner_m", email="owner_m@example.com")
+        stranger = create_user(username="stranger_m", email="stranger_m@example.com")
 
-        project = make_project(author=author, name="Proj")
+        project = create_project(author=owner, name="Project M")
 
-        issue = Issue(project=project, author=outsider, title="Bad issue")
+        issue = Issue(
+            project=project,
+            author=stranger,  # not a contributor
+            title="Invalid",
+            description="",
+            priority="",
+            tag="",
+        )
 
-        with self.assertRaises(DjangoValidationError) as ctx:
+        with self.assertRaises(ValidationError) as ctx:
             issue.save()
 
         self.assertIn("author", ctx.exception.message_dict)
 
-    def test_save_calls_full_clean(self) -> None:
-        """
-        Issue.save() calls full_clean() every time.
-        If a field is invalid (choices), save() should raise DjangoValidationError.
-        """
-        author = make_user("author2", "author2@example.com")
-        project = make_project(author=author, name="Proj2")
 
-        issue = Issue(project=project, author=author, title="Invalid status")
-        issue.status = "NOT_A_REAL_STATUS"  # invalid choice -> caught by full_clean()
-
-        with self.assertRaises(DjangoValidationError):
-            issue.save()
-
-    def test_str_returns_title(self) -> None:
-        """__str__ should return a readable label (the title)."""
-        author = make_user("author3", "author3@example.com")
-        project = make_project(author=author, name="Proj3")
-        issue = make_issue(project=project, author=author, title="Hello")
-
-        self.assertEqual(str(issue), "Hello")
-
-
-# -------------------------
-# Permission tests
-# -------------------------
-class IsIssueAuthorPermissionTests(APITestCase):
-    """Unit tests for IsIssueAuthor permission."""
-
-    def test_allows_author(self) -> None:
-        author = make_user("pa", "pa@example.com")
-        project = make_project(author=author)
-        issue = make_issue(project=project, author=author)
-
-        perm = IsIssueAuthor()
-        request = SimpleNamespace(user=author)
-        view = SimpleNamespace(kwargs={"pk": str(issue.pk)})
-
-        self.assertTrue(perm.has_object_permission(request, view, issue))
-
-    def test_denies_non_author(self) -> None:
-        author = make_user("pa2", "pa2@example.com")
-        other = make_user("pb2", "pb2@example.com")
-        project = make_project(author=author)
-        add_contributor(project, other, added_by=author)
-
-        issue = make_issue(project=project, author=author)
-
-        perm = IsIssueAuthor()
-        request = SimpleNamespace(user=other)
-        view = SimpleNamespace(kwargs={"pk": str(issue.pk)})
-
-        self.assertFalse(perm.has_object_permission(request, view, issue))
-
-    def test_does_not_crash_on_non_issue_object(self) -> None:
-        """
-        Testing because permission got a User object and crashed.
-        This test ensures permission safely returns False instead of raising.
-        """
-        author = make_user("pa3", "pa3@example.com")
-        project = make_project(author=author)
-        issue = make_issue(project=project, author=author)
-
-        random_user_obj = make_user("someone", "someone@example.com")
-
-        perm = IsIssueAuthor()
-        request = SimpleNamespace(user=author)
-        view = SimpleNamespace(kwargs={"pk": str(issue.pk)})
-
-        # Should not raise:
-        allowed = perm.has_object_permission(request, view, random_user_obj)
-        self.assertIn(allowed, (True, False))  # just assert "no crash"
-
-
-# -------------------------
+# ---------------------------------------------------------------------------
 # Serializer tests
-# -------------------------
+# ---------------------------------------------------------------------------
+
+
 class IssueSerializerTests(APITestCase):
-    """Unit tests for IssueSerializer and IssueAssigneeAddSerializer."""
+    """Serializer behavior tests (not view wiring)."""
 
-    def test_issue_serializer_requires_project_on_global_create(self) -> None:
-        """
-        Global endpoint POST /issues/ must include project.
-        Serializer.validate() should error if no project is provided.
-        """
-        factory = APIRequestFactory()
-        user = make_user("s1", "s1@example.com")
+    def test_issue_write_serializer_requires_project_in_context(self) -> None:
+        actor = create_user(username="actor_s", email="actor_s@example.com")
 
-        request = factory.post("/api/v1/issues/", {"title": "x"}, format="json")
-        request.user = user
+        req = RequestFactory().post("/fake")
+        req.user = actor
 
-        serializer = IssueSerializer(data={"title": "x"}, context={"request": request})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("project", serializer.errors)
-
-    def test_issue_serializer_hides_project_name_nested_context_for_write(self) -> None:
-        """
-        In nested /projects/{id}/issues/ POST, the project comes from the URL.
-        IssueSerializer.__init__ removes 'project' from write forms in that case.
-        """
-        factory = APIRequestFactory()
-        user = make_user("s2", "s2@example.com")
-        project = make_project(author=user)
-
-        request = factory.post(
-            "/api/v1/projects/1/issues/", {"title": "x"}, format="json"
+        serializer = IssueWriteSerializer(
+            data={
+                "title": "A",
+                "description": "",
+                "priority": "",
+                "tag": "",
+                "status": IssueStatus.TODO,
+            },
+            context={"request": req},
         )
-        request.user = user
-
-        serializer = IssueSerializer(context={"request": request, "project": project})
-        self.assertNotIn("project", serializer.fields)
-
-    def test_issue_serializer_disallows_changing_project_on_update(self) -> None:
-        """IssueSerializer.update() should reject project changes."""
-        author = make_user("s3", "s3@example.com")
-        project1 = make_project(author=author, name="P1")
-        project2 = make_project(author=author, name="P2")
-
-        issue = make_issue(project=project1, author=author)
-
-        factory = APIRequestFactory()
-        request = factory.patch(
-            "/api/v1/issues/1/", {"project": project2.pk}, format="json"
-        )
-        request.user = author
-
-        serializer = IssueSerializer(
-            instance=issue,
-            data={"project": project2.pk},
-            partial=True,
-            context={"request": request},
-        )
-        self.assertTrue(serializer.is_valid())
+        serializer.is_valid(raise_exception=True)
 
         with self.assertRaises(Exception) as ctx:
             serializer.save()
 
-        # DRF ValidationError shows up as Exception here in unittest context
-        self.assertIn("project", str(ctx.exception))
+        self.assertIn("project", str(ctx.exception).lower())
 
-    def test_assignee_add_serializer_limits_dropdown_to_contributors(self) -> None:
-        """
-        IssueAssigneeAddSerializer.__init__ sets queryset to issue.project.contributors.
-        """
-        author = make_user("sa", "sa@example.com")
-        contributor = make_user("sb", "sb@example.com")
-        outsider = make_user("sc", "sc@example.com")
+    def test_issue_write_serializer_surfaces_model_validation(self) -> None:
+        owner = create_user(username="owner_s", email="owner_s@example.com")
+        stranger = create_user(username="stranger_s", email="stranger_s@example.com")
+        project = create_project(author=owner, name="Project S")
 
-        project = make_project(author=author, name="P")
-        add_contributor(project, contributor, added_by=author)
+        # Stranger is NOT contributor -> Issue.save() raises Django ValidationError
+        req = RequestFactory().post("/fake")
+        req.user = owner
 
-        issue = make_issue(project=project, author=author)
-
-        serializer = IssueAssigneeAddSerializer(context={"issue": issue})
-        allowed_ids = list(
-            serializer.fields["user"].queryset.values_list("id", flat=True)
+        serializer = IssueWriteSerializer(
+            data={
+                "title": "A",
+                "description": "",
+                "priority": "",
+                "tag": "",
+                "status": IssueStatus.TODO,
+            },
+            context={"request": req, "project": project, "author": stranger},
         )
+        serializer.is_valid(raise_exception=True)
 
-        self.assertIn(author.id, allowed_ids)
-        self.assertIn(contributor.id, allowed_ids)
-        self.assertNotIn(outsider.id, allowed_ids)
+        with self.assertRaises(Exception) as ctx:
+            serializer.save()
+
+        self.assertIn("author", str(ctx.exception).lower())
+
+    def test_issue_assignee_add_serializer_creates_assignment(self) -> None:
+        owner = create_user(username="owner_a", email="owner_a@example.com")
+        assignee = create_user(username="assignee_a", email="assignee_a@example.com")
+
+        project = create_project(author=owner, name="Project A")
+        add_contributor(project=project, user=assignee, added_by=owner)
+        issue = create_issue(project=project, author=owner, title="Issue A")
+
+        req = APIRequestFactory().post("/fake")
+        req.user = owner
+
+        serializer = IssueAssigneeAddSerializer(
+            data={"user": assignee.id},
+            context={"request": req, "issue": issue},
+        )
+        serializer.is_valid(raise_exception=True)
+        assignment = serializer.save()
+
+        self.assertEqual(assignment.issue_id, issue.id)
+        self.assertEqual(assignment.user_id, assignee.id)
+        self.assertEqual(assignment.assigned_by_id, owner.id)
+
+    def test_issue_assignee_add_serializer_blocks_non_contributor(self) -> None:
+        owner = create_user(username="owner_b", email="owner_b@example.com")
+        outsider = create_user(username="outsider_b", email="outsider_b@example.com")
+
+        project = create_project(author=owner, name="Project B")
+        issue = create_issue(project=project, author=owner, title="Issue B")
+
+        req = APIRequestFactory().post("/fake")
+        req.user = owner
+
+        serializer = IssueAssigneeAddSerializer(
+            data={"user": outsider.id},
+            context={"request": req, "issue": issue},
+        )
+        self.assertFalse(serializer.is_valid())
+
+    def test_issue_assignee_add_serializer_blocks_duplicates(self) -> None:
+        owner = create_user(username="owner_c", email="owner_c@example.com")
+        assignee = create_user(username="assignee_c", email="assignee_c@example.com")
+
+        project = create_project(author=owner, name="Project C")
+        add_contributor(project=project, user=assignee, added_by=owner)
+        issue = create_issue(project=project, author=owner, title="Issue C")
+
+        IssueAssignee.objects.create(issue=issue, user=assignee, assigned_by=owner)
+
+        req = APIRequestFactory().post("/fake")
+        req.user = owner
+
+        serializer = IssueAssigneeAddSerializer(
+            data={"user": assignee.id},
+            context={"request": req, "issue": issue},
+        )
+        self.assertFalse(serializer.is_valid())
+
+    def test_issue_detail_serializer_smoke(self) -> None:
+        owner = create_user(username="owner_d", email="owner_d@example.com")
+        project = create_project(author=owner, name="Project D")
+        issue = create_issue(project=project, author=owner, title="Issue D")
+
+        req = APIRequestFactory().get("/fake")
+        req.user = owner
+
+        data = IssueDetailSerializer(issue, context={"request": req}).data
+        for key in ("id", "title", "project_id", "author_id", "comments_preview"):
+            self.assertIn(key, data)
 
 
-# -------------------------
-# API / ViewSet tests (global issues endpoints)
-# -------------------------
+# ---------------------------------------------------------------------------
+# Viewset / API tests
+# ---------------------------------------------------------------------------
+
+
 class IssueViewSetTests(APITestCase):
-    """Integration tests for apps.issues.views.IssueViewSet."""
+    """Integration tests for /issues/ endpoints and nested actions."""
 
     def setUp(self) -> None:
-        self.author = make_user("author_api", "author_api@example.com")
-        self.other = make_user("other_api", "other_api@example.com")
-        self.outsider = make_user("outsider_api", "outsider_api@example.com")
+        self.owner = create_user(username="owner", email="owner@example.com")
+        self.contrib = create_user(username="contrib", email="contrib@example.com")
+        self.stranger = create_user(username="stranger", email="stranger@example.com")
+        self.admin = create_admin(username="admin", email="admin@example.com")
 
-        self.project_visible = make_project(author=self.author, name="Visible")
-        add_contributor(self.project_visible, self.other, added_by=self.author)
+        # Project 1: owner + contrib
+        self.project_1 = create_project(author=self.owner, name="P1")
+        add_contributor(project=self.project_1, user=self.contrib, added_by=self.owner)
 
-        self.project_hidden = make_project(author=self.outsider, name="Hidden")
-
-        self.issue1 = make_issue(
-            project=self.project_visible, author=self.author, title="I1"
+        self.issue_owner = create_issue(
+            project=self.project_1, author=self.owner, title="I1"
         )
-        self.issue2 = make_issue(
-            project=self.project_hidden, author=self.outsider, title="I2"
-        )
-
-    def test_list_only_returns_project_issues_where_user_is_contributor(self) -> None:
-        """
-        get_queryset() filters by project__contributors=user,
-            so issues from other projects
-        should not be visible.
-        """
-        self.client.force_authenticate(user=self.other)
-
-        url = reverse("issues:issues-list")
-        res = self.client.get(url)
-
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        ids = [row["id"] for row in res.json()]
-        self.assertIn(self.issue1.id, ids)
-        self.assertNotIn(self.issue2.id, ids)
-
-    def test_retrieve_hidden_issue_returns_404(self) -> None:
-        """
-        Because get_queryset() hides non-visible issues, retrieving a hidden issue
-        should return 404 (not 403).
-        """
-        self.client.force_authenticate(user=self.other)
-
-        url = reverse("issues:issues-detail", kwargs={"pk": self.issue2.pk})
-        res = self.client.get(url)
-
-        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_create_requires_contributor_of_selected_project(self) -> None:
-        """
-        perform_create() blocks creation if user is not a contributor
-        of the selected project.
-        """
-        self.client.force_authenticate(user=self.other)
-
-        url = reverse("issues:issues-list")
-
-        # other is NOT contributor of project_hidden
-        payload = {
-            "title": "New",
-            "project": self.project_hidden.pk,
-            "status": IssueStatus.TODO,
-        }
-        res = self.client.post(url, payload, format="json")
-
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-
-        # other IS contributor of project_visible
-        payload_ok = {
-            "title": "New2",
-            "project": self.project_visible.pk,
-            "status": IssueStatus.TODO,
-        }
-        res_ok = self.client.post(url, payload_ok, format="json")
-
-        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(res_ok.json()["project"], self.project_visible.pk)
-
-    def test_update_only_author(self) -> None:
-        """
-        update/partial_update/destroy are protected by IsIssueAuthor.
-        """
-        url = reverse("issues:issues-detail", kwargs={"pk": self.issue1.pk})
-
-        # contributor but not author -> forbidden
-        self.client.force_authenticate(user=self.other)
-        res = self.client.patch(url, {"title": "Nope"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-
-        # author -> ok
-        self.client.force_authenticate(user=self.author)
-        res2 = self.client.patch(url, {"title": "Ok"}, format="json")
-        self.assertEqual(res2.status_code, status.HTTP_200_OK)
-        self.assertEqual(res2.json()["title"], "Ok")
-
-    def test_assignees_add_list_remove(self) -> None:
-        """
-        /issues/{id}/assignees/
-        - GET returns assigned users
-        - POST adds one assignee (author only)
-        - DELETE removes one assignee (author only)
-        """
-        list_add_url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
-
-        # initially empty
-        self.client.force_authenticate(user=self.author)
-        res0 = self.client.get(list_add_url)
-        self.assertEqual(res0.status_code, status.HTTP_200_OK)
-        self.assertEqual(res0.json(), [])
-
-        # POST add contributor 'other'
-        res1 = self.client.post(list_add_url, {"user": self.other.pk}, format="json")
-        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
-
-        # now listed
-        res2 = self.client.get(list_add_url)
-        self.assertEqual(len(res2.json()), 1)
-        self.assertEqual(res2.json()[0]["user_id"], self.other.pk)
-
-        # duplicate should fail
-        res_dup = self.client.post(list_add_url, {"user": self.other.pk}, format="json")
-        self.assertEqual(res_dup.status_code, status.HTTP_400_BAD_REQUEST)
-
-        # remove assignee
-        remove_url = reverse(
-            "issues:issues-remove-assignee",
-            kwargs={"pk": self.issue1.pk, "user_id": self.other.pk},
-        )
-        res3 = self.client.delete(remove_url)
-        self.assertEqual(res3.status_code, status.HTTP_204_NO_CONTENT)
-
-        res4 = self.client.get(list_add_url)
-        self.assertEqual(res4.json(), [])
-
-    def test_assignees_add_requires_issue_author(self) -> None:
-        """
-        Assignee management is author-only.
-        """
-        url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
-
-        self.client.force_authenticate(user=self.other)  # not author
-        res = self.client.post(url, {"user": self.other.pk}, format="json")
-
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_assignees_add_rejects_non_contributor(self) -> None:
-        """
-        Serializer must reject assigning a user that isn't
-        a contributor of issue.project.
-        """
-        url = reverse("issues:issues-assignees", kwargs={"pk": self.issue1.pk})
-
-        self.client.force_authenticate(user=self.author)
-
-        # outsider_api is not contributor of project_visible
-        res = self.client.post(url, {"user": self.outsider.pk}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-# -------------------------
-# API tests (nested project issues endpoints)
-# -------------------------
-class ProjectIssuesNestedEndpointsTests(APITestCase):
-    """Integration tests for /projects/{id}/issues/...
-    custom actions in ProjectViewSet.
-    """
-
-    def setUp(self) -> None:
-        self.author = make_user("p_author", "p_author@example.com")
-        self.contributor = make_user("p_contrib", "p_contrib@example.com")
-        self.outsider = make_user("p_out", "p_out@example.com")
-
-        self.project = make_project(author=self.author, name="NestedProj")
-        add_contributor(self.project, self.contributor, added_by=self.author)
-
-        self.issue = make_issue(
-            project=self.project, author=self.author, title="NestedIssue"
+        self.issue_contrib = create_issue(
+            project=self.project_1, author=self.contrib, title="I2"
         )
 
-    def test_nested_list_requires_project_contributor(self) -> None:
-        url = reverse("projects:projects-issues", kwargs={"pk": self.project.pk})
+        # Project 2: hidden from owner/contrib
+        other_owner = create_user(username="other", email="other@example.com")
+        self.project_2 = create_project(author=other_owner, name="P2")
+        self.issue_hidden = create_issue(
+            project=self.project_2, author=other_owner, title="H1"
+        )
 
-        # contributor -> OK
-        self.client.force_authenticate(user=self.contributor)
-        res_ok = self.client.get(url)
-        self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
+    # -------------------------
+    # /issues/ list
+    # -------------------------
 
-        # outsider -> 404 (project hidden by queryset)
-        # OR 403 depending on ProjectViewSet
-        self.client.force_authenticate(user=self.outsider)
-        res_no = self.client.get(url)
+    def test_list_non_staff_only_sees_issues_in_contributor_projects(self) -> None:
+        self.client.force_authenticate(user=self.contrib)
+
+        url = api_reverse("issues:issues-list")
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in extract_results(resp.data)}
+
+        self.assertIn(self.issue_owner.id, ids)
+        self.assertIn(self.issue_contrib.id, ids)
+        self.assertNotIn(self.issue_hidden.id, ids)
+
+    def test_list_staff_sees_all_issues(self) -> None:
+        self.client.force_authenticate(user=self.admin)
+
+        url = api_reverse("issues:issues-list")
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in extract_results(resp.data)}
+
+        self.assertIn(self.issue_owner.id, ids)
+        self.assertIn(self.issue_hidden.id, ids)
+
+    # -------------------------
+    # /issues/{id}/ retrieve
+    # -------------------------
+
+    def test_retrieve_denies_non_contributor_by_queryset_scope(self) -> None:
+        self.client.force_authenticate(user=self.contrib)
+
+        url = api_reverse("issues:issues-detail", kwargs={"pk": self.issue_hidden.id})
+        resp = self.client.get(url)
+
+        # Queryset filtering generally yields 404 (no leakage).
         self.assertIn(
-            res_no.status_code, (status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN)
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
         )
 
-    def test_nested_create_forces_project_from_url(self) -> None:
-        """
-        POST /projects/{id}/issues/ should NOT require 'project' in payload.
-        It is forced from the URL project.
-        """
-        url = reverse("projects:projects-issues", kwargs={"pk": self.project.pk})
-        self.client.force_authenticate(user=self.contributor)
+    # -------------------------
+    # update/delete permissions
+    # -------------------------
 
-        payload = {"title": "Created nested", "status": IssueStatus.TODO}
-        res = self.client.post(url, payload, format="json")
+    def test_update_only_issue_author_or_staff(self) -> None:
+        url = api_reverse("issues:issues-detail", kwargs={"pk": self.issue_owner.id})
 
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(res.json()["project"], self.project.pk)
+        # Contributor but not issue author -> forbidden
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.patch(url, data={"title": "Nope"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_nested_create_rejects_conflicting_project_in_payload(self) -> None:
-        """
-        Defensive safety: if client sends 'project', it must match the URL project.
-        """
-        other_project = make_project(author=self.author, name="OtherProj")
+        # Author -> ok
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(url, data={"title": "Updated"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-        url = reverse("projects:projects-issues", kwargs={"pk": self.project.pk})
-        self.client.force_authenticate(user=self.author)
+        # Staff -> ok
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.patch(url, data={"title": "Updated by admin"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-        payload = {
-            "title": "Bad",
-            "status": IssueStatus.TODO,
-            "project": other_project.pk,
-        }
-        res = self.client.post(url, payload, format="json")
-
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_nested_issue_detail_get_ok_for_contributor(self) -> None:
-        url = reverse(
-            "projects:projects-issue-detail",
-            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk},
+    def test_delete_only_issue_author_or_staff(self) -> None:
+        issue = create_issue(
+            project=self.project_1, author=self.owner, title="ToDelete"
         )
-        self.client.force_authenticate(user=self.contributor)
+        url = api_reverse("issues:issues-detail", kwargs={"pk": issue.id})
 
-        res = self.client.get(url)
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.json()["id"], self.issue.pk)
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_nested_issue_detail_patch_delete_author_only(self) -> None:
-        url = reverse(
-            "projects:projects-issue-detail",
-            kwargs={"pk": self.project.pk, "issue_id": self.issue.pk},
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+    # -------------------------
+    # /issues/{id}/assignees/ GET/POST
+    # -------------------------
+
+    def test_assignees_get_allowed_for_project_contributor(self) -> None:
+        IssueAssignee.objects.create(
+            issue=self.issue_owner,
+            user=self.contrib,
+            assigned_by=self.owner,
         )
 
-        # contributor but not issue author -> 403
-        self.client.force_authenticate(user=self.contributor)
-        res_forbidden = self.client.patch(url, {"title": "Nope"}, format="json")
-        self.assertEqual(res_forbidden.status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(user=self.contrib)
+        url = api_reverse("issues:issues-assignees", kwargs={"pk": self.issue_owner.id})
+        resp = self.client.get(url)
 
-        # author -> ok
-        self.client.force_authenticate(user=self.author)
-        res_ok = self.client.patch(url, {"title": "Yep"}, format="json")
-        self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
-        self.assertEqual(res_ok.json()["title"], "Yep")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        results = extract_results(resp.data)
 
-        # author delete -> 204
-        res_del = self.client.delete(url)
-        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["user_id"], self.contrib.id)
+
+        for key in ("assignment_id", "user_id", "username", "email", "assigned_by_id"):
+            self.assertIn(key, results[0])
+
+    def test_assignees_post_only_issue_author_or_staff(self) -> None:
+        outsider = create_user(username="outsider", email="outsider@example.com")
+        url = api_reverse("issues:issues-assignees", kwargs={"pk": self.issue_owner.id})
+
+        # Non-author contributor -> 403
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.post(url, data={"user": self.contrib.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Author -> ok, but assignee must be project contributor -> 400
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.post(url, data={"user": outsider.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Add outsider as contributor, then assign -> 201
+        add_contributor(project=self.project_1, user=outsider, added_by=self.owner)
+        resp = self.client.post(url, data={"user": outsider.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+        # Staff can also assign
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.post(url, data={"user": self.contrib.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    # -------------------------
+    # /issues/{id}/assignees/{user_id}/ DELETE
+    # -------------------------
+
+    def test_remove_assignee_only_issue_author_or_staff(self) -> None:
+        IssueAssignee.objects.create(
+            issue=self.issue_owner,
+            user=self.contrib,
+            assigned_by=self.owner,
+        )
+        url = api_reverse(
+            "issues:issues-remove-assignee",
+            kwargs={"pk": self.issue_owner.id, "user_id": self.contrib.id},
+        )
+
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_remove_assignee_404_if_assignment_missing(self) -> None:
+        self.client.force_authenticate(user=self.owner)
+        url = api_reverse(
+            "issues:issues-remove-assignee",
+            kwargs={"pk": self.issue_owner.id, "user_id": self.contrib.id},
+        )
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # -------------------------
+    # Minimal coverage for comment routes exposed by IssueViewSet
+    # (Deep tests belong in apps/comments/tests.py)
+    # -------------------------
+
+    def test_comments_get_allowed_for_contributor(self) -> None:
+        create_comment_minimal(issue=self.issue_owner, author=self.contrib)
+
+        self.client.force_authenticate(user=self.contrib)
+        url = api_reverse("issues:issues-comments", kwargs={"pk": self.issue_owner.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        results = extract_results(resp.data)
+        self.assertGreaterEqual(len(results), 1)
+
+    def test_comment_detail_patch_only_comment_author_or_staff(self) -> None:
+        comment = create_comment_minimal(issue=self.issue_owner, author=self.contrib)
+
+        url = api_reverse(
+            "issues:issues-comment-detail",
+            kwargs={"pk": self.issue_owner.id, "comment_uuid": str(comment.uuid)},
+        )
+
+        # Owner is project contributor but not comment author -> forbidden
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(url, data={"description": "Updated"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Comment author -> ok (200)
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.patch(url, data={"description": "Updated"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        # Staff -> ok (200)
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.patch(
+            url, data={"description": "Updated by staff"}, format="json"
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)

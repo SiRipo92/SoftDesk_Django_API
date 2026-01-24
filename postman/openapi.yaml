@@ -1,0 +1,2507 @@
+openapi: 3.0.3
+info:
+  title: SoftDesk Support API
+  version: 1.0.0
+  description: API v1
+paths:
+  /api/v1/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/v1/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: Blackliste le refresh token fourni afin qu'il ne puisse plus être
+        réutilisé.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '205':
+          description: Refresh token blacklisté.
+        '400':
+          description: Refresh token manquant.
+        '401':
+          description: Refresh token invalide.
+  /api/v1/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/issues/:
+    get:
+      operationId: issues_list
+      description: |-
+        Canonical issue resource.
+
+        Routes:
+        - /issues/                              (GET)
+        - /issues/{id}/                         (GET, PATCH/PUT, DELETE)
+        - /issues/{id}/assignees/               (GET, POST)
+        - /issues/{id}/assignees/{user_id}/     (DELETE)
+        - /issues/{id}/comments/                (GET, POST)
+        - /issues/{id}/comments/{uuid}/         (GET, PATCH/PUT, DELETE)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIssueListList'
+          description: ''
+  /api/v1/issues/{id}/:
+    get:
+      operationId: issues_retrieve
+      description: |-
+        Canonical issue resource.
+
+        Routes:
+        - /issues/                              (GET)
+        - /issues/{id}/                         (GET, PATCH/PUT, DELETE)
+        - /issues/{id}/assignees/               (GET, POST)
+        - /issues/{id}/assignees/{user_id}/     (DELETE)
+        - /issues/{id}/comments/                (GET, POST)
+        - /issues/{id}/comments/{uuid}/         (GET, PATCH/PUT, DELETE)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueDetail'
+          description: ''
+    put:
+      operationId: issues_update
+      description: |-
+        Canonical issue resource.
+
+        Routes:
+        - /issues/                              (GET)
+        - /issues/{id}/                         (GET, PATCH/PUT, DELETE)
+        - /issues/{id}/assignees/               (GET, POST)
+        - /issues/{id}/assignees/{user_id}/     (DELETE)
+        - /issues/{id}/comments/                (GET, POST)
+        - /issues/{id}/comments/{uuid}/         (GET, PATCH/PUT, DELETE)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueWrite'
+          description: ''
+    patch:
+      operationId: issues_partial_update
+      description: |-
+        Canonical issue resource.
+
+        Routes:
+        - /issues/                              (GET)
+        - /issues/{id}/                         (GET, PATCH/PUT, DELETE)
+        - /issues/{id}/assignees/               (GET, POST)
+        - /issues/{id}/assignees/{user_id}/     (DELETE)
+        - /issues/{id}/comments/                (GET, POST)
+        - /issues/{id}/comments/{uuid}/         (GET, PATCH/PUT, DELETE)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueWrite'
+          description: ''
+    delete:
+      operationId: issues_destroy
+      description: |-
+        Canonical issue resource.
+
+        Routes:
+        - /issues/                              (GET)
+        - /issues/{id}/                         (GET, PATCH/PUT, DELETE)
+        - /issues/{id}/assignees/               (GET, POST)
+        - /issues/{id}/assignees/{user_id}/     (DELETE)
+        - /issues/{id}/comments/                (GET, POST)
+        - /issues/{id}/comments/{uuid}/         (GET, PATCH/PUT, DELETE)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/issues/{id}/assignees/:
+    get:
+      operationId: issues_assignees_list
+      description: |-
+        GET  /issues/{id}/assignees/
+        POST /issues/{id}/assignees/   body: {"user": <user_id>}
+      summary: Lister les assignés d'une issue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIssueAssigneeReadList'
+          description: ''
+    post:
+      operationId: issues_assignees_create
+      description: Le body attend un champ 'user' (id). L'utilisateur doit être contributeur
+        du projet.
+      summary: Assigner un utilisateur à une issue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueAssigneeAddRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueAssigneeAddRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueAssigneeAddRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueAssigneeRead'
+          description: ''
+  /api/v1/issues/{id}/assignees/{user_id}/:
+    delete:
+      operationId: issues_assignees_destroy
+      description: DELETE /issues/{id}/assignees/{user_id}/
+      summary: Retirer un assigné d'une issue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        description: ID de l'utilisateur à désassigner.
+        required: true
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Assignation supprimée.
+        '400':
+          description: Identifiant utilisateur invalide.
+        '404':
+          description: Assignation introuvable.
+  /api/v1/issues/{id}/comments/:
+    get:
+      operationId: issues_comments_list
+      description: |-
+        GET  /issues/{issue_id}/comments/
+        POST /issues/{issue_id}/comments/   body: {"description": "..."}
+      summary: Lister les commentaires d'une issue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentSummaryList'
+          description: ''
+    post:
+      operationId: issues_comments_create
+      description: |-
+        GET  /issues/{issue_id}/comments/
+        POST /issues/{issue_id}/comments/   body: {"description": "..."}
+      summary: Ajouter un commentaire à une issue
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDetail'
+          description: ''
+  /api/v1/issues/{id}/comments/{comment_uuid}/:
+    get:
+      operationId: issues_comments_retrieve
+      description: GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/
+      summary: Détail d'un commentaire
+      parameters:
+      - in: path
+        name: comment_uuid
+        schema:
+          type: string
+        description: UUID du commentaire.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDetail'
+          description: ''
+    put:
+      operationId: issues_comments_update
+      description: GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/
+      summary: Modifier un commentaire (auteur ou admin)
+      parameters:
+      - in: path
+        name: comment_uuid
+        schema:
+          type: string
+        description: UUID du commentaire.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDetail'
+          description: ''
+    patch:
+      operationId: issues_comments_partial_update
+      description: GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/
+      summary: Modifier un commentaire (auteur ou admin)
+      parameters:
+      - in: path
+        name: comment_uuid
+        schema:
+          type: string
+        description: UUID du commentaire.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDetail'
+          description: ''
+    delete:
+      operationId: issues_comments_destroy
+      description: GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/
+      summary: Supprimer un commentaire (auteur ou admin)
+      parameters:
+      - in: path
+        name: comment_uuid
+        schema:
+          type: string
+        description: UUID du commentaire.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this issue.
+        required: true
+      tags:
+      - issues
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Commentaire supprimé.
+  /api/v1/projects/:
+    get:
+      operationId: projects_list
+      description: |-
+        Project CRUD + contributor management endpoints.
+
+        Visibility:
+        - staff: all projects
+        - non-staff: only projects where a membership row exists
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProjectListList'
+          description: ''
+    post:
+      operationId: projects_create
+      description: |-
+        POST /projects/
+
+        Returns ProjectDetailSerializer after creation to provide a complete
+        resource representation in the response.
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCreate'
+          description: ''
+  /api/v1/projects/{id}/:
+    get:
+      operationId: projects_retrieve
+      description: |-
+        Project CRUD + contributor management endpoints.
+
+        Visibility:
+        - staff: all projects
+        - non-staff: only projects where a membership row exists
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetail'
+          description: ''
+    put:
+      operationId: projects_update
+      description: |-
+        PUT/PATCH /projects/{id}/
+
+        Returns ProjectDetailSerializer after update to provide a complete
+        resource representation in the response.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCreate'
+          description: ''
+    patch:
+      operationId: projects_partial_update
+      description: |-
+        Project CRUD + contributor management endpoints.
+
+        Visibility:
+        - staff: all projects
+        - non-staff: only projects where a membership row exists
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCreate'
+          description: ''
+    delete:
+      operationId: projects_destroy
+      description: |-
+        Project CRUD + contributor management endpoints.
+
+        Visibility:
+        - staff: all projects
+        - non-staff: only projects where a membership row exists
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/projects/{id}/contributors/:
+    get:
+      operationId: projects_contributors_list
+      description: Retourne les lignes d'adhésion (Contributor) du projet. L'auteur
+        du projet peut être présent en base mais peut être masqué côté API selon la
+        logique de sérialisation.
+      summary: Lister les contributeurs d'un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContributorReadList'
+          description: ''
+    post:
+      operationId: projects_contributors_create
+      description: 'Ajoute un contributeur via une clé de recherche : username OU
+        email. Retourne la ligne d''adhésion créée.'
+      summary: Ajouter un contributeur à un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContributorCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ContributorCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ContributorCreateRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContributorRead'
+          description: ''
+  /api/v1/projects/{id}/contributors/{user_id}/:
+    delete:
+      operationId: projects_contributors_destroy
+      description: Supprime la ligne d'adhésion (Contributor) correspondant à user_id.
+        L'auteur du projet ne peut pas être retiré.
+      summary: Retirer un contributeur d'un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        description: ID de l'utilisateur à retirer du projet.
+        required: true
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Contributeur retiré.
+        '400':
+          description: Requête invalide.
+        '404':
+          description: Adhésion introuvable.
+  /api/v1/projects/{id}/issues/:
+    get:
+      operationId: projects_issues_list
+      description: |-
+        GET  /projects/{id}/issues/
+        POST /projects/{id}/issues/           body: {"title": "...", ...}
+
+        Project is derived from the URL and is not writable in the payload.
+      summary: Lister les issues d'un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIssueProjectListList'
+          description: ''
+    post:
+      operationId: projects_issues_create
+      description: Le projet est dérivé de l'URL (non sélectionnable dans le body).
+      summary: Créer une issue dans un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueDetail'
+          description: ''
+  /api/v1/projects/{id}/issues/{issue_id}/:
+    get:
+      operationId: projects_issues_retrieve
+      description: |-
+        /projects/{project_id}/issues/{issue_id}/
+
+        - GET: contributors can view
+        - PUT/PATCH/DELETE: staff OR issue author
+      summary: Détail d'une issue dans le contexte d'un projet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        description: ID de l'issue.
+        required: true
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueDetail'
+          description: ''
+    put:
+      operationId: projects_issues_update
+      description: |-
+        /projects/{project_id}/issues/{issue_id}/
+
+        - GET: contributors can view
+        - PUT/PATCH/DELETE: staff OR issue author
+      summary: Modifier une issue (auteur ou admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        description: ID de l'issue.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IssueWriteRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueDetail'
+          description: ''
+    patch:
+      operationId: projects_issues_partial_update
+      description: |-
+        /projects/{project_id}/issues/{issue_id}/
+
+        - GET: contributors can view
+        - PUT/PATCH/DELETE: staff OR issue author
+      summary: Modifier une issue (auteur ou admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        description: ID de l'issue.
+        required: true
+      tags:
+      - projects
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedIssueWriteRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueDetail'
+          description: ''
+    delete:
+      operationId: projects_issues_destroy
+      description: |-
+        /projects/{project_id}/issues/{issue_id}/
+
+        - GET: contributors can view
+        - PUT/PATCH/DELETE: staff OR issue author
+      summary: Supprimer une issue (auteur ou admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this project.
+        required: true
+      - in: path
+        name: issue_id
+        schema:
+          type: integer
+        description: ID de l'issue.
+        required: true
+      tags:
+      - projects
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Issue supprimée.
+  /api/v1/users/:
+    get:
+      operationId: users_list
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - users
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserListList'
+          description: ''
+    post:
+      operationId: users_create
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/users/{id}/:
+    get:
+      operationId: users_retrieve
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    put:
+      operationId: users_update
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: users_partial_update
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    delete:
+      operationId: users_destroy
+      description: |-
+        User CRUD with strict visibility rules.
+
+        Access rules:
+        - create: public (signup)
+        - list: admin-only
+        - retrieve/update/destroy: authenticated + (self or admin)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - cookieAuth: []
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+components:
+  schemas:
+    BlankEnum:
+      enum:
+      - ''
+    CommentDetail:
+      type: object
+      description: |-
+        Full read-only comment payload (detail endpoint).
+        Includes extra context so the payload is self-explanatory.
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        issue_id:
+          type: integer
+          readOnly: true
+        issue_title:
+          type: string
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        project_name:
+          type: string
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        author_email:
+          type: string
+          format: email
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_email
+      - author_id
+      - author_username
+      - created_at
+      - description
+      - issue_id
+      - issue_title
+      - project_id
+      - project_name
+      - updated_at
+      - uuid
+    CommentSummary:
+      type: object
+      description: |-
+        Small, stable representation used for:
+        - embedded comments inside IssueDetailSerializer
+        - issue-scoped comment list (/issues/{id}/comments/)
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_id
+      - author_username
+      - created_at
+      - description
+      - updated_at
+      - uuid
+    CommentWriteRequest:
+      type: object
+      description: |-
+        Write serializer for comment create/update.
+
+        IMPORTANT:
+        - We do NOT expose `issue` in writable fields in nested endpoints.
+        - `issue` is taken from serializer context (provided by the IssueViewSet action).
+        - `author` is always request.user.
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - description
+    ContributorCreateRequest:
+      type: object
+      description: |-
+        Input-only serializer for adding a contributor to a project.
+
+        The client sends lookup keys:
+          - { "username": "..." } OR { "email": "..." }
+
+        Context requirements (provided by the view):
+        - context["request"]
+        - context["project"]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          minLength: 1
+    ContributorRead:
+      type: object
+      description: |-
+        Read-only serializer for membership rows.
+
+        This serializer represents an actual Contributor model instance.
+        Output fields are either model fields or derived from relations.
+
+        Used for:
+        - listing contributors on a project
+        - returning the created membership row after POST
+      properties:
+        membership_id:
+          type: integer
+          readOnly: true
+        user_id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          readOnly: true
+        added_by:
+          type: string
+          readOnly: true
+      required:
+      - added_by
+      - email
+      - membership_id
+      - user_id
+      - username
+    IssueAssigneeAddRequest:
+      type: object
+      description: |-
+        Add one assignee to an issue.
+
+        Payload:
+          {"user": <user_id>}
+
+        Context:
+        - context["issue"] must be provided by the view.
+      properties:
+        user:
+          type: integer
+      required:
+      - user
+    IssueAssigneeRead:
+      type: object
+      description: |-
+        Read-only representation of a user assigned to an issue.
+
+        Returned by:
+        - GET /issues/{id}/assignees/
+        - responses to POST /issues/{id}/assignees/
+      properties:
+        assignment_id:
+          type: integer
+          readOnly: true
+        user_id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        assigned_at:
+          type: string
+          format: date-time
+          readOnly: true
+        assigned_by_id:
+          type: integer
+          readOnly: true
+          nullable: true
+        assigned_by_username:
+          type: string
+          nullable: true
+          description: assigned_by is nullable (SET_NULL).
+          readOnly: true
+      required:
+      - assigned_at
+      - assigned_by_id
+      - assigned_by_username
+      - assignment_id
+      - email
+      - user_id
+      - username
+    IssueDetail:
+      type: object
+      description: |-
+        Read-only Issue detail payload.
+
+        Notes:
+        - Full comments list is available via GET /issues/{id}/comments/ (paginated).
+        - The detail payload includes a small comments_preview for convenience.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        priority:
+          allOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          readOnly: true
+        tag:
+          allOf:
+          - $ref: '#/components/schemas/TagEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        project_name:
+          type: string
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        assignees:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssueAssigneeRead'
+          readOnly: true
+        comments_count:
+          type: integer
+          description: |-
+            If the queryset annotated comments_count, use it.
+            Otherwise, compute it with COUNT(*).
+          readOnly: true
+        comments_preview:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          description: Return the most recent comments with a limited payload.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - assignees
+      - author_id
+      - author_username
+      - comments_count
+      - comments_preview
+      - created_at
+      - description
+      - id
+      - priority
+      - project_id
+      - project_name
+      - status
+      - tag
+      - title
+      - updated_at
+    IssueList:
+      type: object
+      description: |-
+        Global list (/issues/).
+
+        Contract:
+        - compact list fields
+        - no priority/tag (detail-only)
+        - no updated_at (you don't want timestamps in list payloads)
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        project_name:
+          type: string
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        assignees_count:
+          type: integer
+          readOnly: true
+        comments_count:
+          type: integer
+          readOnly: true
+        assigned_user_ids:
+          type: array
+          items:
+            type: integer
+          description: |-
+            Return assigned user IDs from the join table (IssueAssignee).
+
+            If assignee_links is prefetched, this uses the prefetch cache
+            (no extra DB hits).
+          readOnly: true
+      required:
+      - assigned_user_ids
+      - assignees_count
+      - author_id
+      - author_username
+      - comments_count
+      - id
+      - project_id
+      - project_name
+      - status
+      - title
+    IssueProjectList:
+      type: object
+      description: |-
+        Project-scoped list (/projects/{id}/issues/).
+
+        Contract:
+        - id + title + status for scanning the list
+        - counts + assigned_user_ids for workload overview
+        - no updated_at
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        assignees_count:
+          type: integer
+          readOnly: true
+        comments_count:
+          type: integer
+          readOnly: true
+        assigned_user_ids:
+          type: array
+          items:
+            type: integer
+          description: |-
+            Return assigned user IDs from the join table (IssueAssignee).
+
+            If assignee_links is prefetched, this uses the prefetch cache
+            (no extra DB hits).
+          readOnly: true
+      required:
+      - assigned_user_ids
+      - assignees_count
+      - comments_count
+      - id
+      - status
+      - title
+    IssueWrite:
+      type: object
+      description: |-
+        Write serializer for nested create/update.
+
+        Context for POST:
+        - request (DRF)
+        - project (required for nested creation)
+        - author (optional override)
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 500
+        priority:
+          oneOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        tag:
+          oneOf:
+          - $ref: '#/components/schemas/TagEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+      required:
+      - title
+    IssueWriteRequest:
+      type: object
+      description: |-
+        Write serializer for nested create/update.
+
+        Context for POST:
+        - request (DRF)
+        - project (required for nested creation)
+        - author (optional override)
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 500
+        priority:
+          oneOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        tag:
+          oneOf:
+          - $ref: '#/components/schemas/TagEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+      required:
+      - title
+    LogoutRequest:
+      type: object
+      description: |-
+        Serializer for logout payload.
+
+        Expected payload:
+            { "refresh": "<refresh_token>" }
+      properties:
+        refresh:
+          type: string
+          writeOnly: true
+          minLength: 1
+          description: Refresh token JWT à blacklister.
+      required:
+      - refresh
+    PaginatedCommentSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentSummary'
+    PaginatedContributorReadList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContributorRead'
+    PaginatedIssueAssigneeReadList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssueAssigneeRead'
+    PaginatedIssueListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssueList'
+    PaginatedIssueProjectListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssueProjectList'
+    PaginatedProjectListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectList'
+    PaginatedUserListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserList'
+    PatchedCommentWriteRequest:
+      type: object
+      description: |-
+        Write serializer for comment create/update.
+
+        IMPORTANT:
+        - We do NOT expose `issue` in writable fields in nested endpoints.
+        - `issue` is taken from serializer context (provided by the IssueViewSet action).
+        - `author` is always request.user.
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+    PatchedIssueWriteRequest:
+      type: object
+      description: |-
+        Write serializer for nested create/update.
+
+        Context for POST:
+        - request (DRF)
+        - project (required for nested creation)
+        - author (optional override)
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 500
+        priority:
+          oneOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        tag:
+          oneOf:
+          - $ref: '#/components/schemas/TagEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+    PatchedProjectCreateRequest:
+      type: object
+      description: |-
+        Input-only serializer for creating projects.
+
+        Author source:
+        - defaults to request.user
+        - can be overridden by context["author"] for admin flows
+        (e.g. /users/{id}/projects/)
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        project_type:
+          $ref: '#/components/schemas/ProjectTypeEnum'
+    PatchedUserRequest:
+      type: object
+      description: |-
+        Base serializer for creating/updating a user.
+
+        Responsibilities:
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        birth_date:
+          type: string
+          format: date
+        can_be_contacted:
+          type: boolean
+        can_data_be_shared:
+          type: boolean
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          description: Plaintext password (write-only). Hashed before saving.
+    PriorityEnum:
+      enum:
+      - LOW
+      - MEDIUM
+      - HIGH
+      type: string
+      description: |-
+        * `LOW` - low
+        * `MEDIUM` - medium
+        * `HIGH` - high
+    ProjectCreate:
+      type: object
+      description: |-
+        Input-only serializer for creating projects.
+
+        Author source:
+        - defaults to request.user
+        - can be overridden by context["author"] for admin flows
+        (e.g. /users/{id}/projects/)
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        project_type:
+          $ref: '#/components/schemas/ProjectTypeEnum'
+      required:
+      - name
+      - project_type
+    ProjectCreateRequest:
+      type: object
+      description: |-
+        Input-only serializer for creating projects.
+
+        Author source:
+        - defaults to request.user
+        - can be overridden by context["author"] for admin flows
+        (e.g. /users/{id}/projects/)
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        project_type:
+          $ref: '#/components/schemas/ProjectTypeEnum'
+      required:
+      - name
+      - project_type
+    ProjectDetail:
+      type: object
+      description: |-
+        Serializer for Project detail views.
+
+        Output goal:
+        - Show contributors as a list of membership rows excluding the owner.
+        - Each row includes contributor identity + who added them.
+        - We intentionally do NOT show created_at for contributors (per your need).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        project_type:
+          allOf:
+          - $ref: '#/components/schemas/ProjectTypeEnum'
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        contributors:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          description: |-
+            Build the contributors list from Contributor membership rows.
+
+            We read from obj.memberships (Contributor join table) because:
+            - It contains added_by (who added the contributor).
+            - It links to the user (contributor) for username/email.
+
+            Owner exclusion:
+            - The owner is always a contributor in DB for visibility.
+            - We hide the owner from the contributors list in the API output.
+          readOnly: true
+        issues_count:
+          type: integer
+          readOnly: true
+        issues_preview:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          description: |-
+            Return only the most recent issues (preview), NOT the full issue list.
+
+            Ordering uses updated_at, but the payload does not expose timestamps.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_id
+      - author_username
+      - contributors
+      - created_at
+      - description
+      - id
+      - issues_count
+      - issues_preview
+      - name
+      - project_type
+      - updated_at
+    ProjectList:
+      type: object
+      description: |-
+        Serializer for Project list views.
+
+        Output goal:
+        - Keep list responses light.
+        - Provide contributors_count (excluding the owner).
+        - Provide issues_count (integer only).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        project_type:
+          allOf:
+          - $ref: '#/components/schemas/ProjectTypeEnum'
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        contributors_count:
+          type: integer
+          readOnly: true
+        issues_count:
+          type: integer
+          readOnly: true
+      required:
+      - author_id
+      - author_username
+      - contributors_count
+      - id
+      - issues_count
+      - name
+      - project_type
+    ProjectTypeEnum:
+      enum:
+      - BACK_END
+      - FRONT_END
+      - IOS
+      - ANDROID
+      type: string
+      description: |-
+        * `BACK_END` - Back-end
+        * `FRONT_END` - Front-end
+        * `IOS` - iOS
+        * `ANDROID` - Android
+    StatusEnum:
+      enum:
+      - TO DO
+      - IN_PROGRESS
+      - COMPLETED
+      type: string
+      description: |-
+        * `TO DO` - To Do
+        * `IN_PROGRESS` - In Progress
+        * `COMPLETED` - Completed
+    TagEnum:
+      enum:
+      - BUG
+      - FEATURE
+      - TASK
+      type: string
+      description: |-
+        * `BUG` - bug
+        * `FEATURE` - feature
+        * `TASK` - task
+    TokenObtainPair:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    TokenObtainPairRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    User:
+      type: object
+      description: |-
+        Base serializer for creating/updating a user.
+
+        Responsibilities:
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        birth_date:
+          type: string
+          format: date
+        can_be_contacted:
+          type: boolean
+        can_data_be_shared:
+          type: boolean
+      required:
+      - birth_date
+      - id
+      - username
+    UserDetail:
+      type: object
+      description: |-
+        Detail serializer for /users/{id}/.
+
+        Contains:
+        - Profile fields (write-capable via UserSerializer)
+        - Counters (annotated in UserViewSet.get_queryset)
+        - Short previews for convenience
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        birth_date:
+          type: string
+          format: date
+        can_be_contacted:
+          type: boolean
+        can_data_be_shared:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        num_projects_owned:
+          type: integer
+          readOnly: true
+        num_projects_added_as_contrib:
+          type: integer
+          readOnly: true
+        owned_projects_preview:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserProjectPreview'
+          readOnly: true
+        contributed_projects_preview:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserProjectPreview'
+          readOnly: true
+      required:
+      - birth_date
+      - contributed_projects_preview
+      - created_at
+      - id
+      - num_projects_added_as_contrib
+      - num_projects_owned
+      - owned_projects_preview
+      - updated_at
+      - username
+    UserList:
+      type: object
+      description: Admin list serializer for /users/.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          nullable: true
+        projects_count:
+          type: integer
+          readOnly: true
+      required:
+      - email
+      - id
+      - projects_count
+      - username
+    UserProjectPreview:
+      type: object
+      description: |-
+        Minimal project representation embedded in /users/{id}/.
+
+        Notes:
+        - issues_count must be annotated in the queryset.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        owner_username:
+          type: string
+          readOnly: true
+        issues_count:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - issues_count
+      - name
+      - owner_username
+    UserRequest:
+      type: object
+      description: |-
+        Base serializer for creating/updating a user.
+
+        Responsibilities:
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        birth_date:
+          type: string
+          format: date
+        can_be_contacted:
+          type: boolean
+        can_data_be_shared:
+          type: boolean
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          description: Plaintext password (write-only). Hashed before saving.
+      required:
+      - birth_date
+      - username
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+servers:
+- url: http://localhost:8000
+  description: Local

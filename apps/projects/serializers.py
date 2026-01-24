@@ -12,15 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.db.models import Count
 from rest_framework import serializers
 
-from apps.issues.serializers import IssueSummarySerializer
+from apps.issues.serializers import IssuePreviewInProjectSerializer
 from common.validators import validate_exactly_one_provided
 
 from .models import Contributor, Project
 
 User = get_user_model()
 
+
+ISSUES_PREVIEW_LIMIT = 10
 
 # -------------------------------------------------------------
 # Project Serializers (Differentiates between fields in List & Detail)
@@ -30,6 +33,11 @@ User = get_user_model()
 class ProjectCreateSerializer(serializers.ModelSerializer):
     """
     Input-only serializer for creating projects.
+
+    Author source:
+    - defaults to request.user
+    - can be overridden by context["author"] for admin flows
+    (e.g. /users/{id}/projects/)
     """
 
     class Meta:
@@ -41,17 +49,31 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data):
+        """
+        Create a project and ensure the owner is also a contributor.
+
+        Notes:
+        - `author` can be overridden by a view
+        (ex: admin creating under /users/{id}/projects/).
+        - The Contributor.added_by field tracks the actor
+        who created the membership row.
+        """
         request = self.context["request"]
-        author = request.user
+
+        # Allow views to override author (ex: /users/{id}/projects/ as admin)
+        author = self.context.get("author", request.user)
 
         # Create project
         project = Project.objects.create(author=author, **validated_data)
 
-        # Ensure author is contributor
+        # Ensure the author is also a contributor for visibility.
+        # added_by tracks who created the membership row
+        # (admin action remains traceable).
         Contributor.objects.get_or_create(
             project=project,
             user=author,
-            defaults={"added_by": author},
+            # Actor attribution: admin action stays traceable.
+            defaults={"added_by": request.user},
         )
 
         return project
@@ -63,27 +85,26 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
     Output goal:
     - Keep list responses light.
-    - Provide an integer contributors_count that excludes the project owner.
-      (This count is expected to be provided by the queryset via annotate().)
+    - Provide contributors_count (excluding the owner).
+    - Provide issues_count (integer only).
     """
 
     author_id = serializers.IntegerField(source="author.id", read_only=True)
     author_username = serializers.CharField(source="author.username", read_only=True)
 
     contributors_count = serializers.IntegerField(read_only=True)
+    issues_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Project
         fields = (
             "id",
             "name",
-            "description",
             "project_type",
             "author_id",
             "author_username",
             "contributors_count",
-            "created_at",
-            "updated_at",
+            "issues_count",
         )
         read_only_fields = fields
 
@@ -102,7 +123,12 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     author_username = serializers.CharField(source="author.username", read_only=True)
 
     contributors = serializers.SerializerMethodField()
-    issues = serializers.SerializerMethodField()
+
+    # Total issues count (comes from ProjectViewSet.get_queryset() annotation)
+    issues_count = serializers.IntegerField(read_only=True)
+
+    # Lightweight preview (last N issues only)
+    issues_preview = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -114,7 +140,8 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "author_id",
             "author_username",
             "contributors",
-            "issues",
+            "issues_count",
+            "issues_preview",
             "created_at",
             "updated_at",
         )
@@ -139,18 +166,27 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         )
         return ContributorReadSerializer(memberships, many=True).data
 
-    def get_issues(self, obj: Project):
-        """Return issue summaries for this project (most recent first)."""
+    def get_issues_preview(self, obj: Project) -> list[dict[str, Any]]:
+        """
+        Return only the most recent issues (preview), NOT the full issue list.
+
+        Ordering uses updated_at, but the payload does not expose timestamps.
+        """
         qs = (
-            obj.issues.select_related("author")
-            .prefetch_related("assignees")
-            .order_by("-updated_at")
+            obj.issues.all()
+            .only("id", "title")
+            .prefetch_related("assignee_links")
+            .annotate(
+                assignees_count=Count("assignee_links__user", distinct=True),
+                comments_count=Count("comments", distinct=True),
+            )
+            .order_by("-updated_at", "-id")[:ISSUES_PREVIEW_LIMIT]
         )
-        return IssueSummarySerializer(qs, many=True, context=self.context).data
+        return IssuePreviewInProjectSerializer(qs, many=True, context=self.context).data
 
 
 # -------------------------------------------------------------
-# Project Serializers (Differentiates between fields in List & Detail)
+# Contributor Serializers for Reading and Writing
 # -------------------------------------------------------------
 
 

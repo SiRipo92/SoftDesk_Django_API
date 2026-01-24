@@ -1,21 +1,22 @@
 """
-apps.auth tests.
+apps/auth/tests.py
 
-Covers:
-- POST /auth/login/ -> returns access + refresh
-- POST /auth/refresh/ -> returns a new access token
-- POST /auth/logout/ -> blacklists the provided refresh token
+Test suite for JWT auth endpoints:
+- POST /login/   (TokenObtainPairView)
+- POST /refresh/ (TokenRefreshView)
+- POST /logout/  (custom LogoutView: blacklists refresh token)
 
-Why test third-party endpoints?
-- login/refresh are provided by SimpleJWT, but we test them to ensure:
-  1) our URLs are wired correctly
-  2) our settings support the expected behavior (token rotation/blacklist)
+Assumptions:
+- Your auth urls are included with namespace "auth" (app_name = "auth")
+- SimpleJWT is installed and configured
+- LogoutView requires authentication (IsAuthenticated)
 """
 
 from __future__ import annotations
 
 from datetime import date
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
@@ -24,128 +25,149 @@ from rest_framework.test import APITestCase
 User = get_user_model()
 
 
+DEFAULT_BIRTH_DATE = date(1990, 1, 1)
+
+
 class AuthEndpointsTests(APITestCase):
-    """Integration tests for auth endpoints (JWT + logout blacklist behavior)."""
+    """Covers login/refresh/logout behaviors for the apps.auth app."""
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpTestData(cls) -> None:
         """
-        Create a user for authentication tests.
+        Create a test user once for the whole test class.
 
-        Notes:
-        - TokenObtainPairView authenticates against the configured user model.
-        - get_user_model() keeps tests compatible with a custom User model.
+        Note:
+        - If your custom User model uses email as USERNAME_FIELD, keep the
+          create_user call compatible with your model.
         """
-        self.password = "StrongPassw0rd!*"
-        self.user = User.objects.create_user(
-            username="test_user",
-            email="test_user@example.com",
-            password=self.password,
-            birth_date=date(2000, 1, 1),
+        cls.password = "TestPassword!123"
+        cls.user = User.objects.create_user(
+            username="testuser",
+            email="testuser@example.com",
+            password=cls.password,
+            birth_date=DEFAULT_BIRTH_DATE,
         )
 
-        # URL names come from apps/auth/urls.py (app_name="auth")
-        self.login_url = reverse("auth:login")
-        self.refresh_url = reverse("auth:refresh")
-        self.logout_url = reverse("auth:logout")
+    def _login_and_get_tokens(self) -> dict:
+        """
+        Perform login and return token payload.
 
-    def _login(self) -> dict:
+        Returns:
+            dict: {"refresh": "...", "access": "..."} on success.
         """
-        Helper: log in and return the token pair.
-        Keeps tests focused and avoids duplicate code.
-        """
-        res = self.client.post(
-            self.login_url,
-            data={"username": self.user.username, "password": self.password},
+        url = reverse("auth:login")
+        response = self.client.post(
+            url,
+            {"username": self.user.username, "password": self.password},
             format="json",
         )
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertIn("access", res.data)
-        self.assertIn("refresh", res.data)
-        return res.data
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        return response.data
 
-    def test_login_returns_access_and_refresh(self) -> None:
-        """POST /auth/login/ returns a token pair."""
-        data = self._login()
-        self.assertTrue(data["access"])
-        self.assertTrue(data["refresh"])
+    def _auth_with_access_token(self, access_token: str) -> None:
+        """Attach Bearer access token to subsequent client requests."""
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
 
-    def test_refresh_returns_new_access(self) -> None:
-        """POST /auth/refresh/ with a valid refresh returns an access token."""
-        tokens = self._login()
+    def test_login_success_returns_access_and_refresh(self) -> None:
+        """Login should return both access and refresh tokens."""
+        tokens = self._login_and_get_tokens()
+        self.assertTrue(tokens["access"])
+        self.assertTrue(tokens["refresh"])
 
-        res = self.client.post(
-            self.refresh_url,
-            data={"refresh": tokens["refresh"]},
+    def test_login_invalid_credentials_returns_401(self) -> None:
+        """Login with wrong password should fail."""
+        url = reverse("auth:login")
+        response = self.client.post(
+            url,
+            {"username": self.user.username, "password": "wrong-password"},
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertIn("access", res.data)
-        self.assertTrue(res.data["access"])
+    def test_refresh_success_returns_new_access(self) -> None:
+        """Refresh endpoint should accept a valid refresh token and return access."""
+        tokens = self._login_and_get_tokens()
+
+        url = reverse("auth:refresh")
+        response = self.client.post(url, {"refresh": tokens["refresh"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertTrue(response.data["access"])
 
     def test_logout_requires_authentication(self) -> None:
-        """
-        POST /auth/logout/ requires authentication (IsAuthenticated).
-        """
-        res = self.client.post(
-            self.logout_url, data={"refresh": "anything"}, format="json"
-        )
-
-        # Depending on DRF auth setup, unauthenticated can be 401 or 403.
+        """Logout endpoint is protected by IsAuthenticated -> 401 if no access token."""
+        url = reverse("auth:logout")
+        response = self.client.post(url, {"refresh": "any"}, format="json")
         self.assertIn(
-            res.status_code,
+            response.status_code,
             (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
         )
 
-    def test_logout_returns_400_if_refresh_missing(self) -> None:
-        """POST /auth/logout/ without refresh returns 400."""
-        tokens = self._login()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
-
-        res = self.client.post(self.logout_url, data={}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(res.data.get("detail"), "refresh token requis")
-
-    def test_logout_returns_401_if_refresh_invalid(self) -> None:
-        """POST /auth/logout/ with invalid refresh returns 401."""
-        tokens = self._login()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
-
-        res = self.client.post(
-            self.logout_url,
-            data={"refresh": "not-a-real-token"},
-            format="json",
-        )
-        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(res.data.get("detail"), "refresh token invalide")
-
-    def test_logout_blacklists_refresh_token_and_refresh_fails_after(self) -> None:
+    def test_logout_missing_refresh_returns_400(self) -> None:
         """
-        End-to-end logout behavior:
-        - login -> get refresh
-        - logout -> blacklist refresh
-        - refresh using that same refresh token must fail afterwards
+        Missing refresh should be a serializer validation error.
+
+        Note:
+        - Your view uses serializer.is_valid(raise_exception=True), so DRF returns
+          400 with field error details.
         """
-        tokens = self._login()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        tokens = self._login_and_get_tokens()
+        self._auth_with_access_token(tokens["access"])
 
-        # 1) Logout blacklists the refresh token
-        res_logout = self.client.post(
-            self.logout_url,
-            data={"refresh": tokens["refresh"]},
-            format="json",
+        url = reverse("auth:logout")
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("refresh", response.data)
+
+    def test_logout_invalid_refresh_returns_401(self) -> None:
+        """Invalid refresh token string should trigger TokenError -> 401 with detail."""
+        tokens = self._login_and_get_tokens()
+        self._auth_with_access_token(tokens["access"])
+
+        url = reverse("auth:logout")
+        response = self.client.post(
+            url, {"refresh": "not-a-valid-token"}, format="json"
         )
-        self.assertEqual(res_logout.status_code, status.HTTP_205_RESET_CONTENT)
 
-        # 2) That refresh token should no longer be usable
-        res_refresh = self.client.post(
-            self.refresh_url,
-            data={"refresh": tokens["refresh"]},
-            format="json",
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.data.get("detail"), "refresh token invalide")
+
+    def test_logout_blacklists_refresh_and_prevents_reuse(self) -> None:
+        """
+        Valid logout should:
+        - return 205
+        - blacklist the refresh token
+        - make refresh endpoint reject it afterwards
+
+        If token_blacklist is not installed, blacklist() won't be available/usable.
+        We skip this test to avoid false failures.
+        """
+        if "rest_framework_simplejwt.token_blacklist" not in settings.INSTALLED_APPS:
+            self.skipTest(
+                "SimpleJWT token_blacklist app not installed; cannot test blacklisting."
+            )
+
+        tokens = self._login_and_get_tokens()
+        self._auth_with_access_token(tokens["access"])
+
+        logout_url = reverse("auth:logout")
+        logout_response = self.client.post(
+            logout_url, {"refresh": tokens["refresh"]}, format="json"
+        )
+        self.assertEqual(logout_response.status_code, status.HTTP_205_RESET_CONTENT)
+
+        # Try to reuse the same refresh token: should now fail
+        refresh_url = reverse("auth:refresh")
+        refresh_response = self.client.post(
+            refresh_url, {"refresh": tokens["refresh"]}, format="json"
         )
 
-        # SimpleJWT typically returns 401 "token_not_valid" when blacklisted.
+        # SimpleJWT typically returns 401 when token is blacklisted / invalid.
         self.assertIn(
-            res_refresh.status_code,
-            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+            refresh_response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_400_BAD_REQUEST),
         )

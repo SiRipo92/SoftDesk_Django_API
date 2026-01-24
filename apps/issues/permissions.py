@@ -1,27 +1,25 @@
-# apps/issues/permissions.py
-from rest_framework.permissions import BasePermission
+"""
+Issues app permissions.
 
-from .models import Issue
+This module provides app-scoped aliases for common permissions
+so views can remain explicit (Issue-specific wording) without
+duplicating shared logic.
+"""
+
+from __future__ import annotations
+
+from common.permissions import IsAuthorOrReadOnly
 
 
-class IsIssueAuthor(BasePermission):
-    """Allow access only to the Issue author."""
+class IsIssueAuthor(IsAuthorOrReadOnly):
+    """
+    Allow write operations only for the Issue author (or staff).
 
-    message = "Seul l'auteur de l'issue peut effectuer cette action."
+    Notes:
+    - Inherits staff override behavior from common.permissions.IsAuthorOrReadOnly.
+    - IssueViewSet uses this for update/delete and assignee mutations.
+    """
 
-    def has_object_permission(self, request, view, obj):
-        user = request.user
-        if not user or not user.is_authenticated:
-            return False
-
-        # Normal case: obj is an Issue
-        author_id = getattr(obj, "author_id", None)
-        if author_id is not None:
-            return author_id == user.id
-
-        # Fallback case: obj is NOT an Issue (e.g. User)
-        issue_pk = view.kwargs.get("pk") or view.kwargs.get("issue_id")
-        if not issue_pk:
-            return False
-
-        return Issue.objects.filter(pk=issue_pk, author_id=user.id).exists()
+    message = (
+        "Seul l'auteur de l'issue (ou un administrateur) peut effectuer cette action."
+    )

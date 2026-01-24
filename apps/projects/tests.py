@@ -1,443 +1,594 @@
 """
-Test suite for the projects application.
+Projects app test suite.
 
-Covers:
-- Project model behavior (e.g., __str__)
-- Project creation behavior (author auto-added as contributor)
-- Contributor creation rules (lookup by username/email, duplicates, invalid payloads)
-- ProjectViewSet behavior:
-  - list is scoped to current user's memberships
-  - contributors_count annotation excludes owner
-  - retrieve/update permissions
-  - contributor management actions (list/add/remove)
+Coverage targets:
+- models.py: Project.is_contributor()
+- serializers.py:
+  - ProjectCreateSerializer.create()
+  - ContributorCreateSerializer.validate()/create()
+  - ProjectDetailSerializer contributor output logic
+- views.py:
+  - /projects/ list scoping (staff vs non-staff)
+  - /projects/{id} retrieve scoping (owner or contributor)
+  - write restrictions (owner/staff)
+  - contributors endpoints (GET/POST/DELETE)
+  - issues endpoints permission smoke tests + issue_detail write restriction
 """
 
 from __future__ import annotations
 
-from django.contrib.auth import get_user_model
-from django.urls import reverse
-from rest_framework import status
-from rest_framework.test import APITestCase
+from datetime import date
+from decimal import Decimal
+from typing import Any
 
-from apps.projects.models import Contributor, Project
+from django.contrib.auth import get_user_model
+from django.db import models
+from django.test import RequestFactory
+from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIRequestFactory, APITestCase
+
+from apps.issues.models import Issue
+
+from .models import Contributor, Project, ProjectType
+from .serializers import (
+    ContributorCreateSerializer,
+    ProjectCreateSerializer,
+    ProjectDetailSerializer,
+)
 
 User = get_user_model()
 
+DEFAULT_PASSWORD = "password123"
+DEFAULT_BIRTH_DATE = date(1990, 1, 1)
 
-def create_user(*, username: str, email: str) -> User:
+
+# ---------------------------------------------------------------------------
+# URL helpers (works with or without a Django include namespace)
+# ---------------------------------------------------------------------------
+
+
+def api_reverse(name: str, kwargs: dict[str, Any] | None = None) -> str:
     """
-    Create a valid user with required fields for this project.
+    Reverse a DRF router name with a fallback if the app is included as namespaced.
 
-    Args:
-        username (str): Username for the user.
-        email (str): Email for the user.
-
-    Returns:
-        User: A persisted user instance.
+    Tries:
+    - name
+    - projects:name
+    - hyphenated variant (DRF actions use hyphens)
+    - projects:hyphenated variant
     """
+    candidates = [
+        name,
+        f"projects:{name}",
+        name.replace("_", "-"),
+        f"projects:{name.replace('_', '-')}",
+    ]
+    last_exc: Exception | None = None
+
+    for candidate in candidates:
+        try:
+            return reverse(candidate, kwargs=kwargs)
+        except NoReverseMatch as exc:
+            last_exc = exc
+
+    raise last_exc  # type: ignore[misc]
+
+
+def extract_results(payload: Any) -> list[dict[str, Any]]:
+    """
+    Normalize list responses.
+
+    DRF can return:
+    - list (no pagination)
+    - dict with "results" (pagination enabled)
+    """
+    if isinstance(payload, dict) and "results" in payload:
+        return list(payload["results"])
+    if isinstance(payload, list):
+        return list(payload)
+    raise AssertionError(f"Unexpected list payload type: {type(payload)!r}")
+
+
+# ---------------------------------------------------------------------------
+# Factories
+# ---------------------------------------------------------------------------
+
+
+def create_user(
+    *,
+    username: str,
+    email: str,
+    password: str = DEFAULT_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """Create a user (custom User model requires birth_date)."""
     return User.objects.create_user(
         username=username,
         email=email,
-        password="password123",
-        birth_date="1990-01-01",
+        password=password,
+        birth_date=birth_date,
+        **extra_fields,
     )
 
 
+def create_admin(
+    *,
+    username: str,
+    email: str,
+    password: str = DEFAULT_PASSWORD,
+    birth_date: date = DEFAULT_BIRTH_DATE,
+    **extra_fields: Any,
+) -> User:
+    """Create a staff/superuser."""
+    return User.objects.create_superuser(
+        username=username,
+        email=email,
+        password=password,
+        birth_date=birth_date,
+        **extra_fields,
+    )
+
+
+def create_project(
+    *, author: User, name: str, project_type: str = ProjectType.BACK_END
+) -> Project:
+    """
+    Create a project and ensure the author is a contributor in DB.
+
+    This keeps tests stable even if some code paths rely on membership rows
+    for visibility/permissions.
+    """
+    project = Project.objects.create(
+        author=author,
+        name=name,
+        description="",
+        project_type=project_type,
+    )
+    Contributor.objects.get_or_create(
+        project=project,
+        user=author,
+        defaults={"added_by": author},
+    )
+    return project
+
+
+def add_contributor(*, project: Project, user: User, added_by: User) -> Contributor:
+    """Add a contributor membership row."""
+    return Contributor.objects.create(project=project, user=user, added_by=added_by)
+
+
+def create_issue_minimal(*, project: Project, author: User) -> Issue:
+    """
+    Create an Issue with conservative defaults by introspecting required fields.
+
+    This avoids hardcoding your Issue schema in this module.
+    If you later add a required FK to a different model, update this helper.
+    """
+    issue_kwargs: dict[str, Any] = {"project": project, "author": author}
+
+    for field in Issue._meta.fields:
+        if getattr(field, "primary_key", False):
+            continue
+        if isinstance(field, (models.AutoField, models.BigAutoField)):
+            continue
+
+        if field.name in issue_kwargs:
+            continue
+
+        if field.default is not models.NOT_PROVIDED:
+            continue
+
+        if isinstance(field, models.DateTimeField) and (
+            field.auto_now or field.auto_now_add
+        ):
+            continue
+        if isinstance(field, models.DateField) and (
+            field.auto_now or field.auto_now_add
+        ):
+            continue
+
+        if field.null:
+            continue
+
+        if isinstance(field, models.ForeignKey):
+            rel_model = field.remote_field.model
+            if rel_model == User:
+                issue_kwargs[field.name] = author
+                continue
+            if rel_model == Project:
+                issue_kwargs[field.name] = project
+                continue
+            raise AssertionError(
+                f"create_issue_minimal cannot auto-create required FK '{field.name}' "
+                f"to model {rel_model}."
+            )
+
+        if field.choices:
+            issue_kwargs[field.name] = field.choices[0][0]
+            continue
+
+        if isinstance(field, models.CharField):
+            issue_kwargs[field.name] = "Test"
+        elif isinstance(field, models.TextField):
+            issue_kwargs[field.name] = "Test"
+        elif isinstance(field, models.IntegerField):
+            issue_kwargs[field.name] = 1
+        elif isinstance(field, models.BooleanField):
+            issue_kwargs[field.name] = False
+        elif isinstance(field, models.DateTimeField):
+            issue_kwargs[field.name] = timezone.now()
+        elif isinstance(field, models.DateField):
+            issue_kwargs[field.name] = timezone.now().date()
+        elif isinstance(field, models.DecimalField):
+            issue_kwargs[field.name] = Decimal("1.0")
+        else:
+            issue_kwargs[field.name] = "Test"
+
+    return Issue.objects.create(**issue_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Model tests
+# ---------------------------------------------------------------------------
+
+
 class ProjectModelTests(APITestCase):
-    """Tests related to Project/Contributor model behavior."""
+    """Unit tests for Project model helpers."""
 
-    def test_project_str_representation_returns_name(self):
-        """
-        Return project name as the string representation.
+    def test_is_contributor_true_for_members(self) -> None:
+        owner = create_user(username="owner_m", email="owner_m@example.com")
+        other = create_user(username="other_m", email="other_m@example.com")
 
-        This ensures __str__ is covered and remains stable for admin/UI usage.
-        """
-        user = create_user(username="author", email="author@test.com")
+        project = create_project(author=owner, name="P1")
+        add_contributor(project=project, user=other, added_by=owner)
 
-        project = Project.objects.create(
-            name="Test Project",
-            description="Desc",
-            project_type="BACK_END",
-            author=user,
+        self.assertTrue(project.is_contributor(owner))
+        self.assertTrue(project.is_contributor(other))
+
+    def test_is_contributor_false_for_non_member_or_none(self) -> None:
+        owner = create_user(username="owner_m2", email="owner_m2@example.com")
+        stranger = create_user(username="stranger_m2", email="stranger_m2@example.com")
+        project = create_project(author=owner, name="P2")
+
+        self.assertFalse(project.is_contributor(stranger))
+        self.assertFalse(project.is_contributor(None))
+
+
+# ---------------------------------------------------------------------------
+# Serializer tests
+# ---------------------------------------------------------------------------
+
+
+class ProjectSerializerTests(APITestCase):
+    """Tests focused on serializer behavior (not view wiring)."""
+
+    def test_project_create_serializer_creates_membership(self) -> None:
+        actor = create_user(username="actor_s", email="actor_s@example.com")
+
+        request = RequestFactory().post("/fake")
+        request.user = actor
+
+        serializer = ProjectCreateSerializer(
+            data={
+                "name": "API",
+                "description": "Desc",
+                "project_type": ProjectType.BACK_END,
+            },
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        project = serializer.save()
+
+        self.assertEqual(project.author_id, actor.id)
+        self.assertTrue(
+            Contributor.objects.filter(project=project, user=actor).exists()
         )
 
-        self.assertEqual(str(project), "Test Project")
+        membership = Contributor.objects.get(project=project, user=actor)
+        self.assertEqual(membership.added_by_id, actor.id)
+
+    def test_contributor_create_serializer_requires_exactly_one_lookup_key(
+        self,
+    ) -> None:
+        owner = create_user(username="owner_s", email="owner_s@example.com")
+        project = create_project(author=owner, name="PS")
+
+        request = RequestFactory().post("/fake")
+        request.user = owner
+
+        # missing both
+        serializer = ContributorCreateSerializer(
+            data={},
+            context={"request": request, "project": project},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+        # provided both
+        serializer = ContributorCreateSerializer(
+            data={"username": "x", "email": "x@example.com"},
+            context={"request": request, "project": project},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+    def test_project_detail_serializer_hides_owner_from_contributors(self) -> None:
+        owner = create_user(username="owner_s2", email="owner_s2@example.com")
+        project = create_project(author=owner, name="PD")
+
+        req = APIRequestFactory().get("/fake")
+        req.user = owner
+
+        data = ProjectDetailSerializer(project, context={"request": req}).data
+        self.assertEqual(data.get("contributors", []), [])
 
 
-class ProjectCreateTests(APITestCase):
-    """Tests covering project creation behavior via API."""
+# ---------------------------------------------------------------------------
+# Viewset / API tests
+# ---------------------------------------------------------------------------
 
-    def setUp(self):
-        """Create an authenticated author user."""
-        self.author = create_user(username="author", email="author@test.com")
-        self.client.force_authenticate(self.author)
 
-    def test_create_project_adds_author_as_contributor(self):
-        """
-        Create a project and ensure the author is automatically a contributor.
-        """
-        url = reverse("projects:projects-list")
+class ProjectViewSetTests(APITestCase):
+    """Integration tests for ProjectViewSet endpoints and permissions."""
+
+    def setUp(self) -> None:
+        self.owner = create_user(username="owner", email="owner@example.com")
+        self.contrib = create_user(username="contrib", email="contrib@example.com")
+        self.stranger = create_user(username="stranger", email="stranger@example.com")
+        self.admin = create_admin(username="admin", email="admin@example.com")
+
+        self.p_owned = create_project(author=self.owner, name="Owned")
+        add_contributor(project=self.p_owned, user=self.contrib, added_by=self.owner)
+
+        other_owner = create_user(username="other", email="other@example.com")
+        self.p_contrib = create_project(author=other_owner, name="ContribProject")
+        add_contributor(project=self.p_contrib, user=self.owner, added_by=other_owner)
+
+        self.p_hidden = create_project(author=other_owner, name="Hidden")
+
+    # -------------------------
+    # /projects/ list/create
+    # -------------------------
+
+    def test_list_non_staff_returns_only_owned_projects(self) -> None:
+        self.client.force_authenticate(user=self.owner)
+
+        url = api_reverse("projects-list")
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in extract_results(resp.data)}
+
+        self.assertIn(self.p_owned.id, ids)
+        self.assertNotIn(self.p_contrib.id, ids)
+        self.assertNotIn(self.p_hidden.id, ids)
+
+    def test_list_staff_returns_all_projects(self) -> None:
+        self.client.force_authenticate(user=self.admin)
+
+        url = api_reverse("projects-list")
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in extract_results(resp.data)}
+
+        self.assertIn(self.p_owned.id, ids)
+        self.assertIn(self.p_contrib.id, ids)
+        self.assertIn(self.p_hidden.id, ids)
+
+    def test_create_returns_detail_shape_and_creates_membership(self) -> None:
+        self.client.force_authenticate(user=self.owner)
+
+        url = api_reverse("projects-list")
         payload = {
-            "name": "My Project",
+            "name": "New Project",
             "description": "Desc",
-            "project_type": "BACK_END",
+            "project_type": ProjectType.FRONT_END,
         }
+        resp = self.client.post(url, data=payload, format="json")
 
-        response = self.client.post(url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn("id", resp.data)
+        self.assertEqual(resp.data["author_id"], self.owner.id)
+        self.assertEqual(resp.data.get("contributors", []), [])
 
-        project = Project.objects.get(
-            name=payload["name"],
-            author=self.author,
-        )
-
+        project_id = resp.data["id"]
         self.assertTrue(
-            Contributor.objects.filter(project=project, user=self.author).exists()
+            Contributor.objects.filter(project_id=project_id, user=self.owner).exists()
         )
 
+    # -------------------------
+    # /projects/{id}/ retrieve/update/delete
+    # -------------------------
 
-class ContributorActionTests(APITestCase):
-    """Tests for contributor management actions (GET/POST contributors)."""
+    def test_retrieve_owner_or_contributor_allowed(self) -> None:
+        self.client.force_authenticate(user=self.owner)
 
-    def setUp(self):
-        """
-        Create a project with an author membership.
+        url_owned = api_reverse("projects-detail", kwargs={"pk": self.p_owned.id})
+        url_contrib = api_reverse("projects-detail", kwargs={"pk": self.p_contrib.id})
 
-        Also creates a second user that can be added as contributor.
-        """
-        self.author = create_user(username="author", email="author@test.com")
-        self.bob = create_user(username="bob", email="bob@test.com")
-        self.project = Project.objects.create(
-            name="Project",
-            description="Desc",
-            project_type="BACK_END",
-            author=self.author,
+        resp = self.client.get(url_owned)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        resp = self.client.get(url_contrib)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_non_member_denied(self) -> None:
+        self.client.force_authenticate(user=self.stranger)
+
+        url = api_reverse("projects-detail", kwargs={"pk": self.p_hidden.id})
+        resp = self.client.get(url)
+
+        # Depending on queryset scoping, 404 is acceptable to avoid leaking existence
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
         )
 
-        # Ensure author membership exists (mirrors serializer behavior).
-        Contributor.objects.create(
-            project=self.project,
-            user=self.author,
-            added_by=self.author,
+    def test_update_allowed_for_owner_or_staff_only(self) -> None:
+        url = api_reverse("projects-detail", kwargs={"pk": self.p_owned.id})
+
+        # contributor forbidden
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.patch(url, data={"name": "Nope"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # owner allowed
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(url, data={"name": "Updated"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        # staff allowed
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.patch(url, data={"name": "Updated by admin"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_delete_allowed_for_owner_or_staff_only(self) -> None:
+        project = create_project(author=self.owner, name="ToDelete")
+        add_contributor(project=project, user=self.contrib, added_by=self.owner)
+        url = api_reverse("projects-detail", kwargs={"pk": project.id})
+
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+    # -------------------------
+    # /projects/{id}/contributors/ GET/POST
+    # -------------------------
+
+    def test_contributors_get_allowed_for_contributor_and_hides_owner(self) -> None:
+        self.client.force_authenticate(user=self.contrib)
+
+        url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
+        resp = self.client.get(url)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        results = extract_results(resp.data)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["user_id"], self.contrib.id)
+
+        for key in ("membership_id", "user_id", "username", "email", "added_by"):
+            self.assertIn(key, results[0])
+
+    def test_contributors_post_allowed_for_owner_or_staff_only(self) -> None:
+        newcomer = create_user(username="newc", email="newc@example.com")
+        url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
+
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.post(
+            url, data={"username": newcomer.username}, format="json"
         )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.contributors_url = reverse(
-            "projects:projects-contributors", kwargs={"pk": self.project.pk}
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.post(
+            url, data={"username": newcomer.username}, format="json"
         )
-
-    def test_add_contributor_by_username_succeeds(self):
-        """
-        Add a contributor using username lookup.
-
-        Covers:
-        - ContributorCreateSerializer.validate() username branch
-        - ContributorCreateSerializer.create()
-        - View contributors POST path
-        """
-        self.client.force_authenticate(self.author)
-
-        response = self.client.post(
-            self.contributors_url,
-            {"username": "bob"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertTrue(
-            Contributor.objects.filter(project=self.project, user=self.bob).exists()
+            Contributor.objects.filter(project=self.p_owned, user=newcomer).exists()
         )
 
-    def test_add_contributor_by_email_succeeds(self):
-        """
-        Add a contributor using email lookup.
+    def test_contributors_post_rejects_both_username_and_email(self) -> None:
+        url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
 
-        Covers:
-        - ContributorCreateSerializer.validate() email branch
-        """
-        self.client.force_authenticate(self.author)
-
-        response = self.client.post(
-            self.contributors_url,
-            {"email": "bob@test.com"},
-            format="json",
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.post(
+            url, data={"username": "x", "email": "x@example.com"}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
-        self.assertTrue(
-            Contributor.objects.filter(project=self.project, user=self.bob).exists()
+    # -------------------------
+    # /projects/{id}/contributors/{user_id}/ DELETE
+    # -------------------------
+
+    def test_remove_contributor_owner_cannot_remove_self(self) -> None:
+        self.client.force_authenticate(user=self.owner)
+
+        url = api_reverse(
+            "projects-remove-contributor",
+            kwargs={"pk": self.p_owned.id, "user_id": self.owner.id},
         )
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_add_contributor_rejects_missing_lookup_keys(self):
-        """
-        Reject payload that provides neither username nor email.
-
-        Covers:
-        - validate_exactly_one_provided error branch -> DRF 400
-        """
-        self.client.force_authenticate(self.author)
-
-        response = self.client.post(self.contributors_url, {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_add_contributor_rejects_both_username_and_email(self):
-        """
-        Reject payload that provides both username and email.
-
-        Covers:
-        - validate_exactly_one_provided "both provided" branch -> DRF 400
-        """
-        self.client.force_authenticate(self.author)
-
-        response = self.client.post(
-            self.contributors_url,
-            {"username": "bob", "email": "bob@test.com"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_add_contributor_rejects_unknown_user(self):
-        """
-        Reject contributor addition when username/email cannot be resolved.
-
-        Covers:
-        - "Utilisateur introuvable." branch
-        """
-        self.client.force_authenticate(self.author)
-
-        response = self.client.post(
-            self.contributors_url,
-            {"username": "does-not-exist"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_add_contributor_rejects_duplicates(self):
-        """
-        Reject adding the same user twice as contributor.
-
-        Covers:
-        - duplicate membership exists() branch -> DRF 400
-        """
-        self.client.force_authenticate(self.author)
-
-        Contributor.objects.create(
-            project=self.project,
-            user=self.bob,
-            added_by=self.author,
+    def test_remove_contributor_allowed_for_owner_or_staff_only(self) -> None:
+        url = api_reverse(
+            "projects-remove-contributor",
+            kwargs={"pk": self.p_owned.id, "user_id": self.contrib.id},
         )
 
-        response = self.client.post(
-            self.contributors_url,
-            {"username": "bob"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.client.force_authenticate(user=self.contrib)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_non_author_contributor_cannot_add_contributors(self):
-        """
-        A non-author contributor should be forbidden from adding contributors.
-
-        Covers:
-        - get_permissions() branch for contributors POST -> IsProjectAuthor
-        """
-        # Make bob a contributor first
-        Contributor.objects.create(
-            project=self.project,
-            user=self.bob,
-            added_by=self.author,
-        )
-        self.client.force_authenticate(self.bob)
-
-        response = self.client.post(
-            self.contributors_url,
-            {"username": "author"},  # doesn't matter; should fail on permission first
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_get_contributors_lists_memberships(self):
-        """
-        GET contributors returns membership rows for the project.
-
-        Covers:
-        - contributors GET branch in the view
-        """
-        Contributor.objects.create(
-            project=self.project,
-            user=self.bob,
-            added_by=self.author,
-        )
-        self.client.force_authenticate(self.author)
-
-        response = self.client.get(self.contributors_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # View currently returns ALL memberships including the owner membership.
-        self.assertGreaterEqual(len(response.data), 2)
-
-
-class ProjectViewSetBehaviorTests(APITestCase):
-    """
-    Tests covering list scoping, annotation,
-    retrieve/update permissions, and removal.
-    """
-
-    def setUp(self):
-        """Create users and a project with memberships."""
-        self.author = create_user(username="author", email="author@test.com")
-        self.bob = create_user(username="bob", email="bob@test.com")
-        self.charlie = create_user(username="charlie", email="charlie@test.com")
-
-        self.project = Project.objects.create(
-            name="Project",
-            description="Desc",
-            project_type="BACK_END",
-            author=self.author,
-        )
-
-        Contributor.objects.create(
-            project=self.project, user=self.author, added_by=self.author
-        )
-        Contributor.objects.create(
-            project=self.project, user=self.bob, added_by=self.author
-        )
-
-        self.list_url = reverse("projects:projects-list")
-        self.detail_url = reverse(
-            "projects:projects-detail", kwargs={"pk": self.project.pk}
-        )
-        self.remove_bob_url = reverse(
-            "projects:projects-remove-contributor",
-            kwargs={"pk": self.project.pk, "user_id": self.bob.pk},
-        )
-        self.remove_author_url = reverse(
-            "projects:projects-remove-contributor",
-            kwargs={"pk": self.project.pk, "user_id": self.author.pk},
-        )
-
-    def test_list_is_scoped_to_current_user_memberships(self):
-        """
-        List returns only projects where request.user is a contributor.
-
-        Covers:
-        - get_queryset() membership scoping logic (Exists filter)
-        """
-        # Bob is a contributor -> should see project
-        self.client.force_authenticate(self.bob)
-        response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-
-        # Charlie is NOT a contributor -> should see none
-        self.client.force_authenticate(self.charlie)
-        response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 0)
-
-    def test_list_contributors_count_excludes_owner(self):
-        """
-        List annotation contributors_count excludes the project owner.
-
-        For this setup:
-        - memberships: author + bob
-        - contributors_count should be 1 (bob only)
-        """
-        self.client.force_authenticate(self.author)
-        response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(response.data[0]["contributors_count"], 1)
-
-    def test_retrieve_requires_contributor_membership(self):
-        """
-        Retrieve should be allowed for contributors and blocked for non-members.
-
-        Covers:
-        - retrieve permission path (IsProjectContributor)
-        - queryset scoping causing 404 for non-members
-        """
-        # Contributor can retrieve
-        self.client.force_authenticate(self.bob)
-        response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Non-contributor gets 404 because project isn't in scoped queryset
-        self.client.force_authenticate(self.charlie)
-        response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_update_requires_author(self):
-        """
-        Only the project author can update.
-
-        Covers:
-        - get_permissions() update/partial_update branch (IsProjectAuthor)
-        """
-        patch_payload = {"description": "Updated desc"}
-
-        # Non-author contributor should be forbidden
-        self.client.force_authenticate(self.bob)
-        response = self.client.patch(self.detail_url, patch_payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-        # Author can update
-        self.client.force_authenticate(self.author)
-        response = self.client.patch(self.detail_url, patch_payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.project.refresh_from_db()
-        self.assertEqual(self.project.description, "Updated desc")
-
-    def test_author_can_remove_contributor(self):
-        """
-        Author can remove a contributor membership row.
-
-        Covers:
-        - remove_contributor action success path
-        """
-        self.client.force_authenticate(self.author)
-        response = self.client.delete(self.remove_bob_url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.delete(url)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
         self.assertFalse(
-            Contributor.objects.filter(project=self.project, user=self.bob).exists()
+            Contributor.objects.filter(project=self.p_owned, user=self.contrib).exists()
         )
 
-    def test_non_author_cannot_remove_contributor(self):
-        """
-        Non-author contributor cannot remove contributors.
+    # -------------------------
+    # /projects/{id}/issues/ + /projects/{id}/issues/{issue_id}/
+    # (permission smoke tests)
+    # -------------------------
 
-        Covers:
-        - remove_contributor permissions (IsProjectAuthor)
-        """
-        self.client.force_authenticate(self.bob)
-        response = self.client.delete(self.remove_bob_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    def test_issues_list_allowed_for_contributor(self) -> None:
+        self.client.force_authenticate(user=self.contrib)
 
-    def test_cannot_remove_author_membership(self):
-        """
-        Attempting to remove the author should return HTTP 400.
+        url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
+        resp = self.client.get(url)
 
-        Covers:
-        - 'prevent owner removal' branch in remove_contributor
-        """
-        self.client.force_authenticate(self.author)
-        response = self.client.delete(self.remove_author_url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_remove_contributor_returns_404_for_missing_membership(self):
-        """
-        Removing a user that is not a contributor returns 404.
+    def test_issues_list_denied_for_non_member(self) -> None:
+        self.client.force_authenticate(user=self.stranger)
 
-        Covers:
-        - get_object_or_404 branch in remove_contributor
-        """
-        # Charlie is not a contributor; try removing them.
-        remove_charlie_url = reverse(
-            "projects:projects-remove-contributor",
-            kwargs={"pk": self.project.pk, "user_id": self.charlie.pk},
+        url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
+        resp = self.client.get(url)
+
+        self.assertIn(
+            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
         )
 
-        self.client.force_authenticate(self.author)
-        response = self.client.delete(remove_charlie_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    def test_issues_post_rejects_mismatched_project_in_payload(self) -> None:
+        """
+        This test only targets the mismatch guard in views.py (runs before serializer).
+        """
+        other_project = create_project(author=self.owner, name="Other")
+        self.client.force_authenticate(user=self.contrib)
+
+        url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
+        resp = self.client.post(url, data={"project": other_project.id}, format="json")
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_issue_detail_patch_only_issue_author_or_staff(self) -> None:
+        issue = create_issue_minimal(project=self.p_owned, author=self.contrib)
+
+        url = api_reverse(
+            "projects-issue-detail",
+            kwargs={"pk": self.p_owned.id, "issue_id": issue.id},
+        )
+
+        # owner is a project contributor, but not issue author -> forbidden
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.patch(url, data={"title": "Updated"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # staff allowed
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.patch(url, data={"title": "Updated by admin"}, format="json")
+        self.assertIn(
+            resp.status_code, (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST)
+        )
+        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

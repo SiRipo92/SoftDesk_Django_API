@@ -1,8 +1,14 @@
 """
 Users app serializers.
 
-Enforces business rules at the API boundary (friendly 400 errors),
-while the model enforces the same rules at save-time (harder to bypass).
+Validation is enforced at two layers:
+- Serializer layer (HTTP 400)
+- Model layer (clean() + full_clean()) for non-API code paths
+
+This module provides:
+- UserSerializer: create/update representation (write-capable)
+- UserListSerializer: admin list representation
+- UserDetailSerializer: profile + counters + small previews
 """
 
 from __future__ import annotations
@@ -11,6 +17,8 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Count
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.projects.models import Project
@@ -19,28 +27,20 @@ from common.validators import validate_birth_date_min_age
 User = get_user_model()
 
 
-class UserProjectSummarySerializer(serializers.ModelSerializer):
+class UserProjectPreviewSerializer(serializers.ModelSerializer):
     """
-    Small project representation to embed inside User detail responses.
+    Minimal project representation embedded in /users/{id}/.
 
-    Purpose is for Admin-Listing of Users
+    Notes:
+    - issues_count must be annotated in the queryset.
     """
 
-    author_id = serializers.IntegerField(source="author.id", read_only=True)
-    author_username = serializers.CharField(source="author.username", read_only=True)
+    owner_username = serializers.CharField(source="author.username", read_only=True)
+    issues_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Project
-        fields = (
-            "id",
-            "name",
-            "description",
-            "project_type",
-            "author_id",
-            "author_username",
-            "created_at",
-            "updated_at",
-        )
+        fields = ("id", "name", "owner_username", "issues_count")
         read_only_fields = fields
 
 
@@ -49,30 +49,19 @@ class UserSerializer(serializers.ModelSerializer):
     Base serializer for creating/updating a user.
 
     Responsibilities:
-    - Expose the API representation of a User.
-    - Accept a plaintext password (write-only) and hash it via set_password().
-    - Enforce business rules for birth_date at the API boundary.
-    - Convert model-level ValidationError into DRF ValidationError (HTTP 400).
-
-    Notes:
-    - The model also enforces validation via clean() + save(full_clean()).
-      This serializer adds user-friendly validation errors early in the request.
-    - Adds summary counters :
-        - num_projects_owned: projects where user is the author.
-        - num_projects_added_as_contrib: projects where user is a contributor
-            but NOT the author (i.e., they were added to someone else's project).
+    - Accept plaintext password (write-only) and hash via set_password()
+    - Enforce birth_date business rules at the API boundary
     """
 
     password = serializers.CharField(
         write_only=True,
-        required=False,
+        required=False,  # keep optional for update
+        allow_blank=False,
         min_length=8,
-        help_text="Plaintext password (write-only). Will be hashed before saving.",
+        help_text="Plaintext password (write-only). Hashed before saving.",
     )
 
     class Meta:
-        """Meta configuration for the UserSerializer."""
-
         model = User
         fields = (
             "id",
@@ -88,76 +77,56 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
     def validate_birth_date(self, value):
-        """
-        Validate the birth_date field.
-
-        The rule is delegated to a shared validator used across the project.
-
-        Args:
-            value (date): The incoming birth date.
-
-        Returns:
-            date: The validated birth date.
-
-        Raises:
-            serializers.ValidationError: If the birth date violates business rules
-            (e.g., user too young, date in the future, etc.).
-        """
+        """Validate the birth_date field via shared project validator."""
         try:
             validate_birth_date_min_age(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
         return value
 
-    def create(self, validated_data: dict[str, Any]):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """
-        Create a User instance.
-
-        - Pops "password" from validated_data
-        - Hashes it using set_password()
-        - Saves the user (model will run full_clean in save())
-
-        Args:
-            validated_data (dict[str, Any]): Incoming validated fields.
-
-        Returns:
-            User: The newly created user.
-
-        Raises:
-            serializers.ValidationError: If model-level validation fails.
+        Enforce password rules:
+        - Create (no instance yet): password is required.
+        - Update (instance exists): password is optional.
         """
-        password = validated_data.pop("password", None)
-        user = User(**validated_data)
+        attrs = super().validate(attrs)
 
-        if password:
-            user.set_password(password)
+        is_create = self.instance is None
+        if is_create:
+            required_fields = ("username", "email", "birth_date", "password")
+            missing = {
+                field: "Ce champs est requis"
+                for field in required_fields
+                if not attrs.get(field)
+            }
+
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> User:
+        """
+        Create a User instance via the model manager.
+
+        Why:
+        - Ensures Django's UserManager logic is applied
+            (normalization, password handling).
+        - Prevents bypassing manager-level invariants.
+        - Keeps model validation via your overridden save() calling full_clean().
+        """
+        password = validated_data.pop("password")
 
         try:
-            user.save()
+            user = User.objects.create_user(password=password, **validated_data)
         except DjangoValidationError as exc:
-            # Preserve field-level error mapping from Django (message_dict).
             raise serializers.ValidationError(exc.message_dict) from exc
 
         return user
 
     def update(self, instance: User, validated_data: dict[str, Any]):
-        """
-        Update a User instance.
-
-        - Updates provided attributes via setattr()
-        - Hashes password if provided
-        - Saves the instance (model will run full_clean in save())
-
-        Args:
-            instance (User): The user instance to update.
-            validated_data (dict[str, Any]): Incoming validated fields.
-
-        Returns:
-            User: The updated user.
-
-        Raises:
-            serializers.ValidationError: If model-level validation fails.
-        """
+        """Update a User instance with optional password hashing."""
         password = validated_data.pop("password", None)
 
         for attr, value in validated_data.items():
@@ -175,84 +144,70 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserListSerializer(serializers.ModelSerializer):
-    """
-    Admin list serializer.
-
-    Goal:
-    - Keep it light.
-    - Include a computed projects_count
-        (number of projects where the user is contributor).
-    """
+    """Admin list serializer for /users/."""
 
     projects_count = serializers.IntegerField(read_only=True)
-    num_projects_owned = serializers.IntegerField(read_only=True)
-    num_projects_added_as_contrib = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = User
-        fields = (
-            "id",
-            "username",
-            "email",
-            "projects_count",
-            "num_projects_owned",
-            "num_projects_added_as_contrib",
-        )
+        fields = ("id", "username", "email", "projects_count")
         read_only_fields = fields
 
 
 class UserDetailSerializer(UserSerializer):
     """
-    Detail serializer for /users/{id}/
+    Detail serializer for /users/{id}/.
 
-    Adds:
-    - owned_projects: projects authored by this user
-    - contributed_projects: projects where user is a contributor but not the author
-    - summary counters
+    Contains:
+    - Profile fields (write-capable via UserSerializer)
+    - Counters (annotated in UserViewSet.get_queryset)
+    - Short previews for convenience
     """
-
-    owned_projects = serializers.SerializerMethodField()
-    contributed_projects = serializers.SerializerMethodField()
 
     num_projects_owned = serializers.IntegerField(read_only=True)
     num_projects_added_as_contrib = serializers.IntegerField(read_only=True)
 
+    owned_projects_preview = serializers.SerializerMethodField()
+    contributed_projects_preview = serializers.SerializerMethodField()
+
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
     class Meta(UserSerializer.Meta):
         fields = UserSerializer.Meta.fields + (
+            "created_at",
+            "updated_at",
             "num_projects_owned",
             "num_projects_added_as_contrib",
-            "owned_projects",
-            "contributed_projects",
+            "owned_projects_preview",
+            "contributed_projects_preview",
         )
 
-    def get_owned_projects(self, obj: User):
-        """
-        Projects where the user is the author (owner).
-
-        Why this is separate:
-        - It answers “what did this user create/own?”
-        """
+    @extend_schema_field(UserProjectPreviewSerializer(many=True))
+    def get_owned_projects_preview(self, obj: User):
+        """Return up to 5 recently updated projects owned by the user."""
         qs = (
             Project.objects.filter(author=obj)
             .select_related("author")
-            .order_by("-updated_at")
+            .annotate(issues_count=Count("issues", distinct=True))
+            .order_by("-updated_at")[:5]
         )
-        return UserProjectSummarySerializer(qs, many=True).data
+        return UserProjectPreviewSerializer(qs, many=True).data
 
-    def get_contributed_projects(self, obj: User):
+    @extend_schema_field(UserProjectPreviewSerializer(many=True))
+    def get_contributed_projects_preview(self, obj: User):
         """
-        Projects where the user is a contributor but NOT the author.
+        Return up to 5 recently updated projects where the user is a contributor.
 
-        Why the exclude():
-        - In this system the owner is also a contributor for visibility.
-        - Without excluding owned projects, entries would be duplicated
-            across both lists.
+        Owned projects are excluded to avoid duplication when the owner is also
+        present in the contributors relation.
         """
         qs = (
             Project.objects.filter(contributors=obj)
-            .exclude(author=obj)  # <-- prevents overlap with owned_projects
+            .exclude(author=obj)
             .select_related("author")
             .distinct()
-            .order_by("-updated_at")
+            .annotate(issues_count=Count("issues", distinct=True))
+            .order_by("-updated_at")[:5]
         )
-        return UserProjectSummarySerializer(qs, many=True).data
+        return UserProjectPreviewSerializer(qs, many=True).data
