@@ -90,9 +90,9 @@ class IssueViewSet(
         - staff: all issues
         - non-staff: issues in projects where user is a contributor
         """
-        # drf-spectacular sets this flag during schema generation.
-        # Return a lightweight queryset with the correct model
-        # so it can infer path param types.
+        # drf-spectacular may call get_queryset() while generating the OpenAPI schema.
+        # During schema generation there is no real authenticated request/user, so we
+        # return a safe queryset to let spectacular infer model/field metadata.
         if getattr(self, "swagger_fake_view", False):
             return Issue.objects.all()
 

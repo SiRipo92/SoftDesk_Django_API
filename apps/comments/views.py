@@ -64,6 +64,9 @@ class CommentViewSet(
         - non-staff: only comments authored by the user
         """
 
+        # drf-spectacular may call get_queryset() while generating the OpenAPI schema.
+        # During schema generation there is no real authenticated request/user, so we
+        # return a safe queryset to let spectacular infer model/field metadata.
         if getattr(self, "swagger_fake_view", False):
             return Comment.objects.all()
 
