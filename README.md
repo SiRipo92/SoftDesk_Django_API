@@ -83,8 +83,13 @@ poetry run python manage.py migrate
 ```
 
 ## Postman
-A Postman collection + environments will live in:
-- `postman/ (to be added)
+The postman openapi.yaml documentation to be imported into Postman can be automatically generated with :
+
+```bash
+python manage.py spectacular --validate --file postman/openapi.yaml
+```
+
+and will place the openapi.yaml in the project root's `/postman` folder.
 
 ## Project Structure
 ```text
