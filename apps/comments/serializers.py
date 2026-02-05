@@ -86,9 +86,9 @@ class CommentWriteSerializer(serializers.ModelSerializer):
     """
     Write serializer for comment create/update.
 
-    IMPORTANT:
-    - We do NOT expose `issue` in writable fields in nested endpoints.
-    - `issue` is taken from serializer context (provided by the IssueViewSet action).
+    Rules:
+    - `issue` is not writable here (nested route controls it).
+    - `issue` must be provided via serializer context.
     - `author` is always request.user.
     """
 
@@ -100,38 +100,40 @@ class CommentWriteSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         issue = self.context.get("issue")
 
-        if issue is None:
-            raise serializers.ValidationError({"detail": "Issue manquant en contexte."})
+        if request is None:
+            raise serializers.ValidationError(
+                {"request": "Requête manquante en contexte."}
+            )
 
-        comment = Comment(
-            issue=issue,
-            author=request.user,
-            **validated_data,
-        )
+        if issue is None:
+            raise serializers.ValidationError(
+                {"issue": "Issue manquante en contexte."}
+            )
+
+        comment = Comment(issue=issue, author=request.user, **validated_data)
 
         try:
             comment.save()
         except DjangoValidationError as exc:
+            # Converts Django model validation errors
+            # into DRF validation errors
             raise serializers.ValidationError(exc.message_dict) from exc
 
         return comment
 
 
 # ------------------------------------------------------------------
-# READ view for admins for overall comments
+# READ view for listing for overall comments
 # ------------------------------------------------------------------
 
 
-class CommentAdminListSerializer(serializers.ModelSerializer):
+class CommentListSerializer(serializers.ModelSerializer):
     """
-    Admin list representation for /comments/.
+    List representation for /comments/.
 
     Keeps payload smaller than full detail while still giving enough context
     to audit comments globally.
     """
-
-    author_id = serializers.IntegerField(source="author.id", read_only=True)
-    author_username = serializers.CharField(source="author.username", read_only=True)
 
     issue_id = serializers.IntegerField(source="issue.id", read_only=True)
     project_id = serializers.IntegerField(source="issue.project.id", read_only=True)
@@ -140,12 +142,7 @@ class CommentAdminListSerializer(serializers.ModelSerializer):
         model = Comment
         fields = (
             "uuid",
-            "description",
             "project_id",
             "issue_id",
-            "author_id",
-            "author_username",
-            "created_at",
-            "updated_at",
         )
         read_only_fields = fields
