@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from datetime import date
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count
@@ -53,6 +54,7 @@ class UserSerializer(serializers.ModelSerializer):
     - Enforce birth_date business rules at the API boundary
     """
 
+    email = serializers.EmailField(required=True, allow_blank=False)
     password = serializers.CharField(
         write_only=True,
         required=False,  # keep optional for update
@@ -76,7 +78,7 @@ class UserSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
-    def validate_birth_date(self, value):
+    def validate_birth_date(self, value) -> date:
         """Validate the birth_date field via shared project validator."""
         try:
             validate_birth_date_min_age(value)
@@ -125,7 +127,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         return user
 
-    def update(self, instance: User, validated_data: dict[str, Any]):
+    def update(self, instance: User, validated_data: dict[str, Any]) -> User:
         """Update a User instance with optional password hashing."""
         password = validated_data.pop("password", None)
 
@@ -184,7 +186,7 @@ class UserDetailSerializer(UserSerializer):
         )
 
     @extend_schema_field(UserProjectPreviewSerializer(many=True))
-    def get_owned_projects_preview(self, obj: User):
+    def get_owned_projects_preview(self, obj: User) -> list[dict[str, Any]]:
         """Return up to 5 recently updated projects owned by the user."""
         qs = (
             Project.objects.filter(author=obj)
@@ -195,7 +197,7 @@ class UserDetailSerializer(UserSerializer):
         return UserProjectPreviewSerializer(qs, many=True).data
 
     @extend_schema_field(UserProjectPreviewSerializer(many=True))
-    def get_contributed_projects_preview(self, obj: User):
+    def get_contributed_projects_preview(self, obj: User) -> list[dict[str, Any]]:
         """
         Return up to 5 recently updated projects where the user is a contributor.
 
