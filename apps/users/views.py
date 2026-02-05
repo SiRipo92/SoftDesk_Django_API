@@ -16,11 +16,11 @@ Notes:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, F, Q
-from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from django.db.models import Count, F, Q, QuerySet
+from rest_framework import serializers, viewsets
+from rest_framework.permissions import AllowAny, BasePermission, IsAdminUser, IsAuthenticated
 
-from .permissions import IsSelfOrAdmin
+from common.permissions import IsSelfOrAdmin
 from .serializers import UserDetailSerializer, UserListSerializer, UserSerializer
 
 User = get_user_model()
@@ -38,14 +38,14 @@ class UserViewSet(viewsets.ModelViewSet):
 
     queryset = User.objects.all()
 
-    def get_permissions(self):
+    def get_permissions(self) -> list[BasePermission]:
         if self.action == "create":
             return [AllowAny()]
         if self.action == "list":
             return [IsAuthenticated(), IsAdminUser()]
         return [IsAuthenticated(), IsSelfOrAdmin()]
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         """
         Select a serializer based on the current action.
 
@@ -59,7 +59,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return UserDetailSerializer
         return UserSerializer
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[User]:
         """
         Scope the queryset and annotate summary counters.
 
