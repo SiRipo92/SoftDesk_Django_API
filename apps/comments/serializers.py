@@ -106,9 +106,7 @@ class CommentWriteSerializer(serializers.ModelSerializer):
             )
 
         if issue is None:
-            raise serializers.ValidationError(
-                {"issue": "Issue manquante en contexte."}
-            )
+            raise serializers.ValidationError({"issue": "Issue manquante en contexte."})
 
         comment = Comment(issue=issue, author=request.user, **validated_data)
 

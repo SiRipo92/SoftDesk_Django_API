@@ -6,7 +6,7 @@ Coverage targets:
   - Comment.clean()/save() contributor validation
 - serializers.py
   - CommentWriteSerializer.create() context requirements + model error surfacing
-  - CommentSummarySerializer / CommentDetailSerializer / CommentAdminListSerializer
+  - CommentSummarySerializer / CommentDetailSerializer / CommentListSerializer
 - views.py
   - /comments/ list admin-only
   - /comments/{uuid}/ retrieve/update/delete author-or-staff only
@@ -32,8 +32,8 @@ from apps.projects.models import Contributor, Project
 
 from .models import Comment
 from .serializers import (
-    CommentAdminListSerializer,
     CommentDetailSerializer,
+    CommentListSerializer,
     CommentSummarySerializer,
     CommentWriteSerializer,
 )
@@ -297,6 +297,9 @@ class CommentModelTests(APITestCase):
     """Unit tests for Comment model validation rules."""
 
     def test_comment_save_rejects_author_not_project_contributor(self) -> None:
+        """
+        Comment.save raises ValidationError when author is not a project contributor.
+        """
         owner = create_user(username="owner_m", email="owner_m@example.com")
         outsider = create_user(username="outsider_m", email="outsider_m@example.com")
 
@@ -311,6 +314,7 @@ class CommentModelTests(APITestCase):
         self.assertIn("author", ctx.exception.message_dict)
 
     def test_comment_str_returns_uuid(self) -> None:
+        """Comment.__str__ returns the comment UUID string representation."""
         owner = create_user(username="owner_m2", email="owner_m2@example.com")
         project = create_project_minimal(author=owner)
         issue = create_issue_minimal(project=project, author=owner)
@@ -328,6 +332,10 @@ class CommentSerializerTests(APITestCase):
     """Serializer behavior tests (not view wiring)."""
 
     def test_comment_write_serializer_requires_issue_in_context(self) -> None:
+        """
+        CommentWriteSerializer.save fails when the required 'issue'
+        context is missing.
+        """
         actor = create_user(username="actor_s", email="actor_s@example.com")
 
         req = RequestFactory().post("/fake")
@@ -345,6 +353,10 @@ class CommentSerializerTests(APITestCase):
         self.assertIn("issue", str(ctx.exception).lower())
 
     def test_comment_write_serializer_surfaces_model_validation(self) -> None:
+        """
+        CommentWriteSerializer surfaces model validation errors
+        when author is invalid.
+        """
         owner = create_user(username="owner_s", email="owner_s@example.com")
         outsider = create_user(username="outsider_s", email="outsider_s@example.com")
 
@@ -366,6 +378,7 @@ class CommentSerializerTests(APITestCase):
         self.assertIn("author", str(ctx.exception).lower())
 
     def test_comment_summary_serializer_smoke(self) -> None:
+        """CommentSummarySerializer exposes the expected summary output fields."""
         owner = create_user(username="owner_sum", email="owner_sum@example.com")
         project = create_project_minimal(author=owner)
         issue = create_issue_minimal(project=project, author=owner)
@@ -383,6 +396,7 @@ class CommentSerializerTests(APITestCase):
             self.assertIn(key, data)
 
     def test_comment_detail_serializer_smoke(self) -> None:
+        """CommentDetailSerializer exposes the expected detail output fields."""
         owner = create_user(username="owner_det", email="owner_det@example.com")
         project = create_project_minimal(author=owner)
         issue = create_issue_minimal(project=project, author=owner)
@@ -404,22 +418,24 @@ class CommentSerializerTests(APITestCase):
         ):
             self.assertIn(key, data)
 
-    def test_comment_admin_list_serializer_smoke(self) -> None:
-        owner = create_user(username="owner_admin", email="owner_admin@example.com")
+    def test_comment_list_serializer_smoke(self) -> None:
+        """
+        CommentListSerializer exposes the expected lightweight list payload fields.
+
+        This serializer is used by the global /comments/ list endpoint and may be
+        intentionally minimal (e.g., for performance or privacy).
+        """
+        owner = create_user(username="owner_list", email="owner_list@example.com")
         project = create_project_minimal(author=owner)
         issue = create_issue_minimal(project=project, author=owner)
         comment = create_comment(issue=issue, author=owner, description="Hi")
 
-        data = CommentAdminListSerializer(comment).data
+        data = CommentListSerializer(comment).data
+
         for key in (
             "uuid",
-            "description",
             "project_id",
             "issue_id",
-            "author_id",
-            "author_username",
-            "created_at",
-            "updated_at",
         ):
             self.assertIn(key, data)
 
@@ -430,9 +446,18 @@ class CommentSerializerTests(APITestCase):
 
 
 class CommentViewSetTests(APITestCase):
-    """Integration tests for /comments/ endpoints and permissions."""
+    """Integration tests for /comments/ endpoints and permission/scoping rules."""
 
     def setUp(self) -> None:
+        """
+        Build a dataset for comment visibility and permissions.
+
+        Dataset:
+        - owner: 1 comment (comment_owner)
+        - other: 2 comments across 2 projects (comment_other, comment_elsewhere)
+        - admin: staff user (can list/retrieve/update/delete all comments)
+        - stranger: non-staff, no comments (cannot access others' comments)
+        """
         self.owner = create_user(username="owner", email="owner@example.com")
         self.other = create_user(username="other", email="other@example.com")
         self.stranger = create_user(username="stranger", email="stranger@example.com")
@@ -450,7 +475,7 @@ class CommentViewSetTests(APITestCase):
             issue=self.issue, author=self.other, description="Other"
         )
 
-        # Another project/comment for admin list coverage
+        # Second project ensures list scoping works across projects for the same author.
         other_project = create_project_minimal(author=self.other)
         other_issue = create_issue_minimal(project=other_project, author=self.other)
         self.comment_elsewhere = create_comment(
@@ -458,15 +483,43 @@ class CommentViewSetTests(APITestCase):
         )
 
     # -------------------------
-    # /comments/ list (admin only)
+    # /comments/ list
     # -------------------------
 
-    def test_list_admin_only(self) -> None:
+    def test_list_requires_authentication(self) -> None:
+        """
+        GET /comments/ requires authentication.
+
+        CommentViewSet.list uses IsAuthenticated, so anonymous users must be rejected.
+        """
+        url = api_reverse("comments:comments-list")
+
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_scoped_to_user_for_non_staff(self) -> None:
+        """
+        GET /comments/ returns only the caller's comments for non-staff users.
+
+        This validates get_queryset() filtering: qs.filter(author=user).
+        """
         url = api_reverse("comments:comments-list")
 
         self.client.force_authenticate(user=self.owner)
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        results = extract_results(resp.data)
+        ids = {row["uuid"] for row in results}
+        self.assertEqual(ids, {str(self.comment_owner.uuid)})
+
+    def test_list_includes_all_comments_for_staff(self) -> None:
+        """
+        GET /comments/ returns all comments for staff users.
+
+        This validates get_queryset() staff branch: return qs (no author filter).
+        """
+        url = api_reverse("comments:comments-list")
 
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get(url)
@@ -476,26 +529,39 @@ class CommentViewSetTests(APITestCase):
         ids = {row["uuid"] for row in results}
 
         self.assertIn(str(self.comment_owner.uuid), ids)
+        self.assertIn(str(self.comment_other.uuid), ids)
         self.assertIn(str(self.comment_elsewhere.uuid), ids)
 
-        # Admin list serializer contract
+    def test_list_uses_list_serializer_contract(self) -> None:
+        """
+        GET /comments/ returns objects shaped like CommentListSerializer.
+
+        Keep this test aligned with CommentListSerializer fields. If the serializer
+        changes, update this contract test accordingly.
+        """
+        url = api_reverse("comments:comments-list")
+
+        self.client.force_authenticate(user=self.owner)
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        results = extract_results(resp.data)
+        self.assertGreaterEqual(len(results), 1)
+
         sample = results[0]
         for key in (
             "uuid",
-            "description",
             "project_id",
             "issue_id",
-            "author_id",
-            "author_username",
-            "created_at",
-            "updated_at",
         ):
             self.assertIn(key, sample)
 
     def test_post_not_exposed_on_comments_root(self) -> None:
         """
-        POST /comments/ must not exist
-        (creation happens via nested issues endpoint).
+        POST /comments/ is not exposed on the global comments endpoint.
+
+        Comment creation is intentionally handled via the nested route:
+        POST /issues/{issue_id}/comments/
         """
         url = api_reverse("comments:comments-list")
 
@@ -507,9 +573,17 @@ class CommentViewSetTests(APITestCase):
     # /comments/{uuid}/ retrieve/update/delete
     # -------------------------
 
-    def test_retrieve_allowed_for_author_or_admin(self) -> None:
+    def test_retrieve_allowed_for_author_or_staff(self) -> None:
+        """
+        GET /comments/{uuid}/ is allowed for:
+        - the comment author
+        - staff users
+
+        This validates IsCommentAuthorOrStaff on retrieve.
+        """
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(self.comment_owner.uuid)},
         )
 
         self.client.force_authenticate(user=self.owner)
@@ -520,22 +594,38 @@ class CommentViewSetTests(APITestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_retrieve_denied_for_non_author_non_admin(self) -> None:
+    def test_retrieve_denied_for_non_author_non_staff(self) -> None:
+        """
+        GET /comments/{uuid}/ is denied for non-author, non-staff users.
+
+        Depending on queryset scoping, APIs may return:
+        - 403 (permission denied)
+        - 404 (resource not visible; avoids leaking existence)
+        """
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(self.comment_owner.uuid)},
         )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.get(url)
 
-        # With queryset scoping, this is typically 404 (preferred).
         self.assertIn(
-            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+            resp.status_code,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
         )
 
-    def test_patch_allowed_for_author_or_admin(self) -> None:
+    def test_patch_allowed_for_author_or_staff(self) -> None:
+        """
+        PATCH /comments/{uuid}/ is allowed for:
+        - the comment author
+        - staff users
+
+        This validates IsCommentAuthorOrStaff on update.
+        """
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(self.comment_owner.uuid)},
         )
 
         self.client.force_authenticate(user=self.owner)
@@ -550,49 +640,72 @@ class CommentViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["description"], "Admin update")
 
-    def test_patch_denied_for_non_author_non_admin(self) -> None:
+    def test_patch_denied_for_non_author_non_staff(self) -> None:
+        """
+        PATCH /comments/{uuid}/ is denied for non-author, non-staff users.
+
+        Depending on queryset scoping, this may return 403 or 404.
+        """
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(self.comment_owner.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(self.comment_owner.uuid)},
         )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.patch(url, data={"description": "Nope"}, format="json")
+
         self.assertIn(
-            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+            resp.status_code,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
         )
 
-    def test_delete_allowed_for_author_or_admin(self) -> None:
-        # Author delete
+    def test_delete_allowed_for_author_or_staff(self) -> None:
+        """
+        DELETE /comments/{uuid}/ is allowed for:
+        - the comment author
+        - staff users
+
+        This validates IsCommentAuthorOrStaff on destroy.
+        """
         comment = create_comment(
             issue=self.issue, author=self.owner, description="Del1"
         )
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(comment.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(comment.uuid)},
         )
 
         self.client.force_authenticate(user=self.owner)
         resp = self.client.delete(url)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
-        # Admin delete
         comment2 = create_comment(
             issue=self.issue, author=self.other, description="Del2"
         )
         url2 = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(comment2.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(comment2.uuid)},
         )
 
         self.client.force_authenticate(user=self.admin)
         resp = self.client.delete(url2)
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_delete_denied_for_non_author_non_admin(self) -> None:
+    def test_delete_denied_for_non_author_non_staff(self) -> None:
+        """
+        DELETE /comments/{uuid}/ is denied for non-author, non-staff users.
+
+        Depending on queryset scoping, this may return 403 or 404.
+        """
         url = api_reverse(
-            "comments:comments-detail", kwargs={"uuid": str(self.comment_other.uuid)}
+            "comments:comments-detail",
+            kwargs={"uuid": str(self.comment_other.uuid)},
         )
 
         self.client.force_authenticate(user=self.stranger)
         resp = self.client.delete(url)
+
         self.assertIn(
-            resp.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+            resp.status_code,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
         )

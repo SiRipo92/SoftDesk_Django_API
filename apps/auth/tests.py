@@ -17,6 +17,7 @@ class JwtEndpointsTests(APITestCase):
 
     @classmethod
     def setUpTestData(cls) -> None:
+        """Create a baseline user account shared across all JWT endpoint tests."""
         cls.password = "TestPassword!123"
         cls.user = User.objects.create_user(
             username="testuser",
@@ -42,11 +43,19 @@ class JwtEndpointsTests(APITestCase):
         return payload
 
     def test_login_success_returns_access_and_refresh(self) -> None:
+        """
+        POST /auth/login returns both access and refresh tokens
+        for valid credentials.
+        """
         tokens = self._login_and_get_tokens()
         self.assertTrue(tokens["access"])
         self.assertTrue(tokens["refresh"])
 
     def test_login_invalid_credentials_returns_401(self) -> None:
+        """
+        POST /auth/login returns 401 when username/password
+        credentials are invalid.
+        """
         url = reverse("auth:login")
         response = self.client.post(
             url,
@@ -56,6 +65,10 @@ class JwtEndpointsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_refresh_success_returns_new_access_token(self) -> None:
+        """
+        POST /auth/refresh returns a new access token when provided a
+        valid refresh token.
+        """
         tokens = self._login_and_get_tokens()
 
         url = reverse("auth:refresh")

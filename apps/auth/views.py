@@ -29,6 +29,7 @@ class LoginView(TokenObtainPairView):
     - access: short-lived JWT access token
     - refresh: longer-lived refresh token
     """
+
     permission_classes = [AllowAny]
     serializer_class = TokenObtainPairSerializer
 
@@ -51,6 +52,7 @@ class RefreshView(TokenRefreshView):
     Output:
     - access: new access token
     """
+
     permission_classes = [AllowAny]
     serializer_class = TokenRefreshSerializer
 
@@ -71,6 +73,7 @@ class LogoutView(GenericAPIView):
     Server-side "logout" is implemented by blacklisting the refresh token.
     Access tokens remain valid until they expire.
     """
+
     permission_classes = [IsAuthenticated]
     serializer_class = LogoutSerializer
 
@@ -105,8 +108,11 @@ class LogoutView(GenericAPIView):
         except TokenError:
             # Token is invalid/expired/already blacklisted
             return Response(
-                {"refresh":
-                     ["Invalid, expired, or already blacklisted refresh token."]},
+                {
+                    "refresh": [
+                        "Invalid, expired, or already blacklisted refresh token."
+                    ]
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

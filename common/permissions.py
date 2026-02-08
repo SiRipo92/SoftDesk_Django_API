@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from django.apps import apps
 from rest_framework.permissions import SAFE_METHODS, BasePermission
-
 
 # ------------------------------------------------------------------
 # Shared helpers / base classes
@@ -45,7 +44,7 @@ class StaffOrOwnerPermission(AuthenticatedPermission):
 
     message = "Accès interdit."
 
-    def get_owner_id(self, obj) -> Optional[int]:
+    def get_owner_id(self, obj) -> int | None:
         """
         Return the owner user's id for the object, or None
         if not resolvable.
@@ -72,7 +71,7 @@ class StaffOrAuthorPermission(StaffOrOwnerPermission):
     otherwise falls back to `author.id`.
     """
 
-    def get_owner_id(self, obj) -> Optional[int]:
+    def get_owner_id(self, obj) -> int | None:
         author_id = getattr(obj, "author_id", None)
         if author_id is not None:
             return int(author_id)
@@ -110,7 +109,7 @@ class ProjectResolverMixin:
         return None
 
     @staticmethod
-    def _get_project_id_from_view(view) -> Optional[str]:
+    def _get_project_id_from_view(view) -> str | None:
         """
         Extract project id from common kwarg names used in nested routers.
         """
@@ -125,9 +124,7 @@ class ProjectResolverMixin:
         """
         Load Project model without importing apps.projects directly.
         """
-        ProjectModel = apps.get_model(
-            "projects",
-            "Project")
+        ProjectModel = apps.get_model("projects", "Project")
         return ProjectModel.objects.filter(pk=project_id).first()
 
 
@@ -150,7 +147,7 @@ class IsSelfOrAdmin(StaffOrOwnerPermission):
         "votre propre profil (sauf administrateur)."
     )
 
-    def get_owner_id(self, obj) -> Optional[int]:
+    def get_owner_id(self, obj) -> int | None:
         return getattr(obj, "pk", None)
 
 
@@ -183,8 +180,7 @@ class IsAuthorOrReadOnly(IsAuthorOrStaff):
     (directly via AuthenticatedPermission base, or via view permissions).
     """
 
-    message = "Seul l'auteur de cette ressource peut la "\
-              "modifier ou la supprimer."
+    message = "Seul l'auteur de cette ressource peut la modifier ou la supprimer."
 
     def has_object_permission(self, request, view, obj) -> bool:
         if request.method in SAFE_METHODS:
@@ -205,8 +201,7 @@ class IsProjectAuthor(IsAuthorOrStaff):
     """
 
     message = (
-        "Seul l'auteur du projet (ou un administrateur) "
-        "peut effectuer cette action."
+        "Seul l'auteur du projet (ou un administrateur) peut effectuer cette action."
     )
 
 
@@ -223,8 +218,7 @@ class IsProjectContributor(AuthenticatedPermission, ProjectResolverMixin):
     - Comment (obj.issue.project)
     """
 
-    message = "Vous devez être contributeur à ce projet pour "\
-              "accéder à cette ressource."
+    message = "Vous devez être contributeur à ce projet pour accéder à cette ressource."
 
     def has_object_permission(self, request, view, obj) -> bool:
         user = self._user(request)
@@ -257,8 +251,9 @@ class IsIssueAuthor(IsAuthorOrReadOnly):
     Inherits the write gate behavior from IsAuthorOrReadOnly.
     """
 
-    message = "Seul l'auteur de l'issue (ou un administrateur) "\
-              "peut effectuer cette action."
+    message = (
+        "Seul l'auteur de l'issue (ou un administrateur) peut effectuer cette action."
+    )
 
 
 # ------------------------------------------------------------------
@@ -270,9 +265,12 @@ class IsCommentAuthorOrStaff(IsAuthorOrStaff):
     """
     Allow access only to the comment author or staff users.
 
-    This is functionally identical to IsAuthorOrStaff but keeps a comment-specific message
-    for clearer API errors and easier soutenance explanation.
+    This is functionally identical to IsAuthorOrStaff
+    but keeps a comment-specific message for clearer API errors
+    and easier soutenance explanation.
     """
 
-    message = "Seul l'auteur du commentaire (ou un administrateur) "\
-              "peut accéder à cette ressource."
+    message = (
+        "Seul l'auteur du commentaire (ou un administrateur) "
+        "peut accéder à cette ressource."
+    )

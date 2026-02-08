@@ -18,9 +18,15 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.db.models import Count, F, Q, QuerySet
 from rest_framework import serializers, viewsets
-from rest_framework.permissions import AllowAny, BasePermission, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import (
+    AllowAny,
+    BasePermission,
+    IsAdminUser,
+    IsAuthenticated,
+)
 
 from common.permissions import IsSelfOrAdmin
+
 from .serializers import UserDetailSerializer, UserListSerializer, UserSerializer
 
 User = get_user_model()
@@ -84,14 +90,13 @@ class UserViewSet(viewsets.ModelViewSet):
 
         if self.action == "list":
             return base_qs.annotate(
-                projects_count=Count("contributed_projects", distinct=True),
+                projects_count=Count("contributed_projects"),
             ).order_by("id")
 
         return base_qs.annotate(
-            num_projects_owned=Count("owned_projects", distinct=True),
+            num_projects_owned=Count("owned_projects"),
             num_projects_added_as_contrib=Count(
                 "project_memberships",
                 filter=~Q(project_memberships__project__author_id=F("id")),
-                distinct=True,
             ),
         )

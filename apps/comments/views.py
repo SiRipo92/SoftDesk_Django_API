@@ -23,10 +23,11 @@ from rest_framework.permissions import BasePermission
 from rest_framework.serializers import BaseSerializer
 
 from common.permissions import IsCommentAuthorOrStaff
+
 from .models import Comment
 from .serializers import (
-    CommentListSerializer,
     CommentDetailSerializer,
+    CommentListSerializer,
     CommentWriteSerializer,
 )
 
@@ -72,10 +73,9 @@ class CommentViewSet(
 
         user = self.request.user
 
-        qs: QuerySet[Comment] = (
-            Comment.objects.select_related("author", "issue", "issue__project")
-            .order_by("-created_at")
-        )
+        qs: QuerySet[Comment] = Comment.objects.select_related(
+            "author", "issue", "issue__project"
+        ).order_by("-created_at")
 
         if getattr(user, "is_staff", False):
             return qs

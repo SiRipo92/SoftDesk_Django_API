@@ -224,7 +224,7 @@ class ContributorReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ContributorCreateSerializer(serializers.Serializer):
+class ContributorWriteSerializer(serializers.Serializer):
     """
     Input-only serializer for adding a contributor to a project.
 

@@ -13,9 +13,9 @@ This module provides:
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
-from datetime import date
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count
@@ -208,8 +208,7 @@ class UserDetailSerializer(UserSerializer):
             Project.objects.filter(contributors=obj)
             .exclude(author=obj)
             .select_related("author")
-            .distinct()
-            .annotate(issues_count=Count("issues", distinct=True))
+            .annotate(issues_count=Count("issues"))
             .order_by("-updated_at")[:5]
         )
         return UserProjectPreviewSerializer(qs, many=True).data

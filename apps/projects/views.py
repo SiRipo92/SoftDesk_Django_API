@@ -13,12 +13,14 @@ Endpoints:
 - /projects/{id}/contributors/{user_id}/  (DELETE)
 - /projects/{id}/issues/                  (GET; POST)
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -36,8 +38,8 @@ from common.permissions import IsIssueAuthor, IsProjectAuthor, IsProjectContribu
 
 from .models import Contributor, Project
 from .serializers import (
-    ContributorCreateSerializer,
     ContributorReadSerializer,
+    ContributorWriteSerializer,
     ProjectDetailSerializer,
     ProjectListSerializer,
     ProjectWriteSerializer,
@@ -109,11 +111,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
     # Serializer context (inject URL-derived objects for nested actions)
     # ------------------------------------------------------------------
 
-    def get_serializer_context(self)-> dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         """
         Add project to serializer context for nested actions.
 
-        ContributorCreateSerializer expects:
+        ContributorWriteSerializer expects:
         - project in context (server-derived, never trusted from payload)
 
         IssueWriteSerializer expects:
@@ -152,7 +154,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if self.action == "contributors":
             if self.request.method == "GET":
                 return ContributorReadSerializer
-            return ContributorCreateSerializer
+            return ContributorWriteSerializer
 
         if self.action == "issues":
             if self.request.method == "GET":
@@ -266,7 +268,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             "Ajoute un contributeur via une clé de recherche : username OU email. "
             "Retourne la ligne d'adhésion créée."
         ),
-        request=ContributorCreateSerializer,
+        request=ContributorWriteSerializer,
         responses={201: ContributorReadSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="contributors")
@@ -331,7 +333,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["delete"], url_path=r"contributors/(?P<user_id>\d+)")
     def remove_contributor(
-            self, request: Request, user_id: str | None = None, pk: str | None = None
+        self, request: Request, user_id: str | None = None, pk: str | None = None
     ) -> Response:
         """
         DELETE /projects/{id}/contributors/{user_id}/
@@ -508,10 +510,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         url_path=r"issues/(?P<issue_id>\d+)",
     )
     def issue_detail(
-            self,
-            request: Request,
-            issue_id: str | None = None,
-            pk: str | None = None,
+        self,
+        request: Request,
+        issue_id: str | None = None,
+        pk: str | None = None,
     ) -> Response:
         """
         /projects/{project_id}/issues/{issue_id}/
@@ -521,12 +523,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         Permission model (layered):
         1) Project scope gate:
-           - user must be authenticated AND be a project contributor (or project author/staff)
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
            - prevents non-members from probing project issues by id
 
         2) Issue write gate (PUT/PATCH/DELETE only):
            - user must be the issue author (or staff)
-           - contributors who are not the author can still READ, but cannot modify/delete
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
         """
         _ = pk
 

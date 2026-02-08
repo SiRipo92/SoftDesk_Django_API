@@ -26,8 +26,8 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIRequestFactory, APITestCase, force_authenticate
 
 from apps.projects.models import Contributor, Project
+from common.permissions import IsSelfOrAdmin
 
-from .permissions import IsSelfOrAdmin
 from .serializers import UserProjectPreviewSerializer, UserSerializer
 from .views import UserViewSet
 

@@ -33,9 +33,11 @@ from apps.issues.models import Issue
 
 from .models import Contributor, Project, ProjectType
 from .serializers import (
-    ContributorCreateSerializer,
-    ProjectCreateSerializer,
+    ContributorReadSerializer,
+    ContributorWriteSerializer,
     ProjectDetailSerializer,
+    ProjectListSerializer,
+    ProjectWriteSerializer,
 )
 
 User = get_user_model()
@@ -239,6 +241,7 @@ class ProjectModelTests(APITestCase):
     """Unit tests for Project model helpers."""
 
     def test_is_contributor_true_for_members(self) -> None:
+        """Project.is_contributor returns True for the owner and contributor users."""
         owner = create_user(username="owner_m", email="owner_m@example.com")
         other = create_user(username="other_m", email="other_m@example.com")
 
@@ -249,6 +252,7 @@ class ProjectModelTests(APITestCase):
         self.assertTrue(project.is_contributor(other))
 
     def test_is_contributor_false_for_non_member_or_none(self) -> None:
+        """Project.is_contributor returns False for non-members and for None input."""
         owner = create_user(username="owner_m2", email="owner_m2@example.com")
         stranger = create_user(username="stranger_m2", email="stranger_m2@example.com")
         project = create_project(author=owner, name="P2")
@@ -265,13 +269,17 @@ class ProjectModelTests(APITestCase):
 class ProjectSerializerTests(APITestCase):
     """Tests focused on serializer behavior (not view wiring)."""
 
-    def test_project_create_serializer_creates_membership(self) -> None:
+    def test_project_write_serializer_creates_membership(self) -> None:
+        """
+        ProjectWriteSerializer creates a Project and ensures the author
+        is a Contributor.
+        """
         actor = create_user(username="actor_s", email="actor_s@example.com")
 
         request = RequestFactory().post("/fake")
         request.user = actor
 
-        serializer = ProjectCreateSerializer(
+        serializer = ProjectWriteSerializer(
             data={
                 "name": "API",
                 "description": "Desc",
@@ -290,9 +298,13 @@ class ProjectSerializerTests(APITestCase):
         membership = Contributor.objects.get(project=project, user=actor)
         self.assertEqual(membership.added_by_id, actor.id)
 
-    def test_contributor_create_serializer_requires_exactly_one_lookup_key(
+    def test_contributor_write_serializer_requires_exactly_one_lookup_key(
         self,
     ) -> None:
+        """
+        ContributorWriteSerializer.validate rejects missing or
+        multiple lookup keys.
+        """
         owner = create_user(username="owner_s", email="owner_s@example.com")
         project = create_project(author=owner, name="PS")
 
@@ -300,7 +312,7 @@ class ProjectSerializerTests(APITestCase):
         request.user = owner
 
         # missing both
-        serializer = ContributorCreateSerializer(
+        serializer = ContributorWriteSerializer(
             data={},
             context={"request": request, "project": project},
         )
@@ -308,7 +320,7 @@ class ProjectSerializerTests(APITestCase):
         self.assertIn("non_field_errors", serializer.errors)
 
         # provided both
-        serializer = ContributorCreateSerializer(
+        serializer = ContributorWriteSerializer(
             data={"username": "x", "email": "x@example.com"},
             context={"request": request, "project": project},
         )
@@ -316,6 +328,10 @@ class ProjectSerializerTests(APITestCase):
         self.assertIn("non_field_errors", serializer.errors)
 
     def test_project_detail_serializer_hides_owner_from_contributors(self) -> None:
+        """
+        ProjectDetailSerializer excludes the project owner from
+        the contributors output.
+        """
         owner = create_user(username="owner_s2", email="owner_s2@example.com")
         project = create_project(author=owner, name="PD")
 
@@ -324,6 +340,52 @@ class ProjectSerializerTests(APITestCase):
 
         data = ProjectDetailSerializer(project, context={"request": req}).data
         self.assertEqual(data.get("contributors", []), [])
+
+    def test_project_list_serializer_smoke(self) -> None:
+        """
+        ProjectListSerializer exposes expected list fields, including annotated counts.
+        """
+        owner = create_user(username="owner_list_s", email="owner_list_s@example.com")
+        project = create_project(author=owner, name="ListProject")
+
+        # These values are normally added by queryset annotations in the viewset.
+        # For a serializer unit test, we simulate them on the instance.
+        project.contributors_count = 0  # type: ignore[attr-defined]
+        project.issues_count = 0  # type: ignore[attr-defined]
+
+        data = ProjectListSerializer(project).data
+
+        for key in (
+            "id",
+            "name",
+            "project_type",
+            "author_id",
+            "author_username",
+            "contributors_count",
+            "issues_count",
+        ):
+            self.assertIn(key, data)
+
+    def test_contributor_read_serializer_smoke(self) -> None:
+        """
+        ContributorReadSerializer returns the flattened membership/user/added_by shape.
+        """
+        owner = create_user(username="owner_cr_s", email="owner_cr_s@example.com")
+        other = create_user(username="other_cr_s", email="other_cr_s@example.com")
+
+        project = create_project(author=owner, name="ContributorReadProject")
+        membership = add_contributor(project=project, user=other, added_by=owner)
+
+        data = ContributorReadSerializer(membership).data
+
+        for key in (
+            "membership_id",
+            "user_id",
+            "username",
+            "email",
+            "added_by",
+        ):
+            self.assertIn(key, data)
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +397,7 @@ class ProjectViewSetTests(APITestCase):
     """Integration tests for ProjectViewSet endpoints and permissions."""
 
     def setUp(self) -> None:
+        """Create users and projects for permission/scoping integration tests."""
         self.owner = create_user(username="owner", email="owner@example.com")
         self.contrib = create_user(username="contrib", email="contrib@example.com")
         self.stranger = create_user(username="stranger", email="stranger@example.com")
@@ -354,6 +417,7 @@ class ProjectViewSetTests(APITestCase):
     # -------------------------
 
     def test_list_non_staff_returns_only_owned_projects(self) -> None:
+        """Non-staff users only see projects they own in the /projects/ list."""
         self.client.force_authenticate(user=self.owner)
 
         url = api_reverse("projects-list")
@@ -367,6 +431,7 @@ class ProjectViewSetTests(APITestCase):
         self.assertNotIn(self.p_hidden.id, ids)
 
     def test_list_staff_returns_all_projects(self) -> None:
+        """Staff users can list all projects in the /projects/ endpoint."""
         self.client.force_authenticate(user=self.admin)
 
         url = api_reverse("projects-list")
@@ -380,6 +445,7 @@ class ProjectViewSetTests(APITestCase):
         self.assertIn(self.p_hidden.id, ids)
 
     def test_create_returns_detail_shape_and_creates_membership(self) -> None:
+        """POST /projects/ returns detail payload and creates owner membership."""
         self.client.force_authenticate(user=self.owner)
 
         url = api_reverse("projects-list")
@@ -405,6 +471,7 @@ class ProjectViewSetTests(APITestCase):
     # -------------------------
 
     def test_retrieve_owner_or_contributor_allowed(self) -> None:
+        """GET /projects/{id}/ is allowed for the owner and contributors."""
         self.client.force_authenticate(user=self.owner)
 
         url_owned = api_reverse("projects-detail", kwargs={"pk": self.p_owned.id})
@@ -417,6 +484,7 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_retrieve_non_member_denied(self) -> None:
+        """GET /projects/{id}/ is denied (403/404) for non-members."""
         self.client.force_authenticate(user=self.stranger)
 
         url = api_reverse("projects-detail", kwargs={"pk": self.p_hidden.id})
@@ -428,6 +496,10 @@ class ProjectViewSetTests(APITestCase):
         )
 
     def test_update_allowed_for_owner_or_staff_only(self) -> None:
+        """
+        PATCH /projects/{id}/ is allowed for owner/staff and
+        forbidden for contributors.
+        """
         url = api_reverse("projects-detail", kwargs={"pk": self.p_owned.id})
 
         # contributor forbidden
@@ -446,6 +518,10 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_delete_allowed_for_owner_or_staff_only(self) -> None:
+        """
+        DELETE /projects/{id}/ is allowed for owner and
+        forbidden for contributors.
+        """
         project = create_project(author=self.owner, name="ToDelete")
         add_contributor(project=project, user=self.contrib, added_by=self.owner)
         url = api_reverse("projects-detail", kwargs={"pk": project.id})
@@ -463,6 +539,10 @@ class ProjectViewSetTests(APITestCase):
     # -------------------------
 
     def test_contributors_get_allowed_for_contributor_and_hides_owner(self) -> None:
+        """
+        GET /projects/{id}/contributors/ is allowed for members
+        and hides the owner.
+        """
         self.client.force_authenticate(user=self.contrib)
 
         url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
@@ -478,6 +558,10 @@ class ProjectViewSetTests(APITestCase):
             self.assertIn(key, results[0])
 
     def test_contributors_post_allowed_for_owner_or_staff_only(self) -> None:
+        """
+        POST /projects/{id}/contributors/ is allowed for owner
+        and forbidden for contributors.
+        """
         newcomer = create_user(username="newc", email="newc@example.com")
         url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
 
@@ -497,6 +581,10 @@ class ProjectViewSetTests(APITestCase):
         )
 
     def test_contributors_post_rejects_both_username_and_email(self) -> None:
+        """
+        POST /projects/{id}/contributors/ rejects payloads
+        providing username and email.
+        """
         url = api_reverse("projects-contributors", kwargs={"pk": self.p_owned.id})
 
         self.client.force_authenticate(user=self.owner)
@@ -510,6 +598,10 @@ class ProjectViewSetTests(APITestCase):
     # -------------------------
 
     def test_remove_contributor_owner_cannot_remove_self(self) -> None:
+        """
+        Owner cannot remove their own contributor membership
+        via DELETE contributor endpoint.
+        """
         self.client.force_authenticate(user=self.owner)
 
         url = api_reverse(
@@ -520,6 +612,7 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_remove_contributor_allowed_for_owner_or_staff_only(self) -> None:
+        """DELETE contributor is allowed for owner and forbidden for contributors."""
         url = api_reverse(
             "projects-remove-contributor",
             kwargs={"pk": self.p_owned.id, "user_id": self.contrib.id},
@@ -543,6 +636,7 @@ class ProjectViewSetTests(APITestCase):
     # -------------------------
 
     def test_issues_list_allowed_for_contributor(self) -> None:
+        """GET /projects/{id}/issues/ is allowed for project contributors."""
         self.client.force_authenticate(user=self.contrib)
 
         url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
@@ -551,6 +645,7 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_issues_list_denied_for_non_member(self) -> None:
+        """GET /projects/{id}/issues/ is denied (403/404) for non-members."""
         self.client.force_authenticate(user=self.stranger)
 
         url = api_reverse("projects-issues", kwargs={"pk": self.p_owned.id})
@@ -573,6 +668,10 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_issue_detail_patch_only_issue_author_or_staff(self) -> None:
+        """
+        PATCH /projects/{id}/issues/{issue_id}/ is restricted
+        to issue author or staff.
+        """
         issue = create_issue_minimal(project=self.p_owned, author=self.contrib)
 
         url = api_reverse(

@@ -20,9 +20,13 @@ from apps.comments.serializers import (
     CommentSummarySerializer,
     CommentWriteSerializer,
 )
+from common.permissions import (
+    IsCommentAuthorOrStaff,
+    IsIssueAuthor,
+    IsProjectContributor,
+)
 
 from .models import Issue, IssueAssignee
-from common.permissions import IsCommentAuthorOrStaff, IsIssueAuthor, IsProjectContributor
 from .serializers import (
     IssueAssigneeAddSerializer,
     IssueAssigneeReadSerializer,
@@ -101,6 +105,12 @@ class IssueViewSet(
         qs: QuerySet[Issue] = Issue.objects.select_related("project", "author")
 
         # Only fetch heavy relations when needed
+        # Conditionally prefetches based on action for optimization b/c
+        # For list endpoints we only need assignee IDs, so fetching
+        # IssueAssignee rows is enough.
+        #
+        # For detail/assignees endpoints we need usernames/emails, so we
+        # prefetch user and assigned_by too.
         if self.action in ("retrieve", "assignees", "remove_assignee"):
             qs = qs.prefetch_related(
                 "assignee_links__user",
@@ -119,7 +129,7 @@ class IssueViewSet(
 
         # Non-staff: restrict issues to projects where user is a contributor.
         # This also prevents non-members from probing issue IDs (returns 404).
-        return qs.filter(project__contributors=user).distinct()
+        return qs.filter(project__contributors=user)
 
     # ------------------------------------------------------------------
     # Context + serializer selection
@@ -136,10 +146,10 @@ class IssueViewSet(
         context = super().get_serializer_context()
 
         if self.action in (
-                "assignees",
-                "remove_assignee",
-                "comments",
-                "comment_detail"
+            "assignees",
+            "remove_assignee",
+            "comments",
+            "comment_detail",
         ):
             context["issue"] = self._get_cached_issue()
 
@@ -186,7 +196,10 @@ class IssueViewSet(
         if self.action in ("update", "partial_update", "destroy"):
             return [permissions.IsAuthenticated(), IsIssueAuthor()]
 
-        if self.action in ("assignees", "remove_assignee") and self.request.method in ("POST", "DELETE"):
+        if self.action in ("assignees", "remove_assignee") and self.request.method in (
+            "POST",
+            "DELETE",
+        ):
             return [permissions.IsAuthenticated(), IsIssueAuthor()]
 
         if self.action == "comments" and self.request.method == "POST":
@@ -265,10 +278,10 @@ class IssueViewSet(
     )
     @action(detail=True, methods=["delete"], url_path=r"assignees/(?P<user_id>\d+)")
     def remove_assignee(
-            self,
-            request: Request,
-            user_id: str | None = None,
-            pk: str | None = None,
+        self,
+        request: Request,
+        user_id: str | None = None,
+        pk: str | None = None,
     ) -> Response:
         """DELETE /issues/{id}/assignees/{user_id}/"""
         _unused_pk: str | None = pk
@@ -390,10 +403,10 @@ class IssueViewSet(
         url_path=r"comments/(?P<comment_uuid>[0-9a-fA-F-]{36})",
     )
     def comment_detail(
-            self,
-            request: Request,
-            comment_uuid: str | None = None,
-            pk: str | None = None,
+        self,
+        request: Request,
+        comment_uuid: str | None = None,
+        pk: str | None = None,
     ) -> Response:
         """GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/"""
         _ = pk
