@@ -91,7 +91,7 @@ class Issue(models.Model):
 
     # Optional: an issue can be assigned to multiple users.
     # Constraint "assignees must be contributors" is enforced in the serializer.
-    # Use a through model to store assigned_at / assigned_by metadata.
+    # Use a "through" model to store assigned_at / assigned_by metadata.
     assignees = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="IssueAssignee",

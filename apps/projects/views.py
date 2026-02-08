@@ -16,8 +16,11 @@ Endpoints:
 
 from __future__ import annotations
 
-from django.db.models import Count, Exists, F, OuterRef, Q
+from typing import Any
+
+from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -31,15 +34,15 @@ from apps.issues.serializers import (
     IssueProjectListSerializer,
     IssueWriteSerializer,
 )
-from common.permissions import IsProjectAuthor, IsProjectContributor
+from common.permissions import IsIssueAuthor, IsProjectAuthor, IsProjectContributor
 
 from .models import Contributor, Project
 from .serializers import (
-    ContributorCreateSerializer,
     ContributorReadSerializer,
-    ProjectCreateSerializer,
+    ContributorWriteSerializer,
     ProjectDetailSerializer,
     ProjectListSerializer,
+    ProjectWriteSerializer,
 )
 
 
@@ -58,7 +61,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     # Queryset scope (visibility) + annotations (counts)
     # ------------------------------------------------------------------
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Project]:
         """
         Return projects visible to the current user.
 
@@ -69,27 +72,28 @@ class ProjectViewSet(viewsets.ModelViewSet):
             - detail/nested: owned OR contributor
         """
         user = self.request.user
-        base_qs = Project.objects.all()
 
         if not getattr(user, "is_authenticated", False):
             return Project.objects.none()
 
-        action = getattr(self, "action", None)
+        qs: QuerySet[Project] = Project.objects.all()
 
-        if not user.is_staff:
-            if action == "list":
-                base_qs = base_qs.filter(author=user)
+        action_name = getattr(self, "action", None)
+
+        if not getattr(user, "is_staff", False):
+            if action_name == "list":
+                qs = qs.filter(author=user)
             else:
                 is_member_qs = Contributor.objects.filter(
                     project_id=OuterRef("pk"),
                     user=user,
                 )
-                base_qs = base_qs.annotate(_is_member=Exists(is_member_qs)).filter(
+                qs = qs.annotate(_is_member=Exists(is_member_qs)).filter(
                     Q(author=user) | Q(_is_member=True)
                 )
 
-        return (
-            base_qs.select_related("author")
+        qs = (
+            qs.select_related("author")
             .annotate(
                 contributors_count=Count(
                     "memberships",
@@ -101,15 +105,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
             .order_by("-updated_at")
         )
 
+        return qs
+
     # ------------------------------------------------------------------
     # Serializer context (inject URL-derived objects for nested actions)
     # ------------------------------------------------------------------
 
-    def get_serializer_context(self):
+    def get_serializer_context(self) -> dict[str, Any]:
         """
         Add project to serializer context for nested actions.
 
-        ContributorCreateSerializer expects:
+        ContributorWriteSerializer expects:
         - project in context (server-derived, never trusted from payload)
 
         IssueWriteSerializer expects:
@@ -123,6 +129,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             "issues",
             "issue_detail",
         ):
+            # NOTE: get_object() includes object-level permission checks.
             context["project"] = self.get_object()
 
         return context
@@ -142,12 +149,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return ProjectDetailSerializer
 
         if self.action in ("create", "update", "partial_update"):
-            return ProjectCreateSerializer
+            return ProjectWriteSerializer
 
         if self.action == "contributors":
             if self.request.method == "GET":
                 return ContributorReadSerializer
-            return ContributorCreateSerializer
+            return ContributorWriteSerializer
 
         if self.action == "issues":
             if self.request.method == "GET":
@@ -261,16 +268,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
             "Ajoute un contributeur via une clé de recherche : username OU email. "
             "Retourne la ligne d'adhésion créée."
         ),
-        request=ContributorCreateSerializer,
+        request=ContributorWriteSerializer,
         responses={201: ContributorReadSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="contributors")
-    def contributors(self, request: Request, pk=None) -> Response:
+    def contributors(self, request: Request, pk: str | None = None) -> Response:
         """
         GET  /projects/{id}/contributors/
         POST /projects/{id}/contributors/
         """
+        # NOTE: pk is required by DRF router for detail routes.
+        _ = pk
+
         project = self.get_object()
+
+        # [PERMISSION CHECK - PROJECT SCOPE]
+        # Enforces permission_classes returned by get_permissions() for this action.
         self.check_object_permissions(request, project)
 
         if request.method == "GET":
@@ -307,8 +320,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         parameters=[
             OpenApiParameter(
                 name="user_id",
-                type=int,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.INT,
+                location="path",
                 description="ID de l'utilisateur à retirer du projet.",
             ),
         ],
@@ -319,11 +332,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
         },
     )
     @action(detail=True, methods=["delete"], url_path=r"contributors/(?P<user_id>\d+)")
-    def remove_contributor(self, request: Request, user_id=None, pk=None) -> Response:
+    def remove_contributor(
+        self, request: Request, user_id: str | None = None, pk: str | None = None
+    ) -> Response:
         """
         DELETE /projects/{id}/contributors/{user_id}/
         """
+        _ = pk
+
         project = self.get_object()
+
+        # [PERMISSION CHECK - PROJECT SCOPE]
+        # Enforces permission_classes returned by get_permissions() for this action.
         self.check_object_permissions(request, project)
 
         try:
@@ -353,7 +373,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
     # Project-scoped issues endpoints
     # ==================================================================
 
-    def get_issue_detail_queryset(self):
+    @staticmethod
+    def get_issue_detail_queryset() -> QuerySet[Issue]:
         """
         Queryset optimized for IssueDetailSerializer.
 
@@ -386,14 +407,19 @@ class ProjectViewSet(viewsets.ModelViewSet):
         responses={201: IssueDetailSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="issues")
-    def issues(self, request: Request, pk=None) -> Response:
+    def issues(self, request: Request, pk: str | None = None) -> Response:
         """
         GET  /projects/{id}/issues/
         POST /projects/{id}/issues/           body: {"title": "...", ...}
 
         Project is derived from the URL and is not writable in the payload.
         """
+        _ = pk
+
         project = self.get_object()
+
+        # [PERMISSION CHECK - PROJECT SCOPE]
+        # Enforces permission_classes returned by get_permissions() for this action.
         self.check_object_permissions(request, project)
 
         if request.method == "GET":
@@ -444,8 +470,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         parameters=[
             OpenApiParameter(
                 name="issue_id",
-                type=int,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.INT,
+                location="path",
                 description="ID de l'issue.",
             ),
         ],
@@ -457,8 +483,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         parameters=[
             OpenApiParameter(
                 name="issue_id",
-                type=int,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.INT,
+                location="path",
                 description="ID de l'issue.",
             ),
         ],
@@ -471,8 +497,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         parameters=[
             OpenApiParameter(
                 name="issue_id",
-                type=int,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.INT,
+                location="path",
                 description="ID de l'issue.",
             ),
         ],
@@ -483,14 +509,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
         methods=["get", "put", "patch", "delete"],
         url_path=r"issues/(?P<issue_id>\d+)",
     )
-    def issue_detail(self, request: Request, issue_id=None, pk=None) -> Response:
+    def issue_detail(
+        self,
+        request: Request,
+        issue_id: str | None = None,
+        pk: str | None = None,
+    ) -> Response:
         """
         /projects/{project_id}/issues/{issue_id}/
 
         - GET: contributors can view
         - PUT/PATCH/DELETE: staff OR issue author
+
+        Permission model (layered):
+        1) Project scope gate:
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
+           - prevents non-members from probing project issues by id
+
+        2) Issue write gate (PUT/PATCH/DELETE only):
+           - user must be the issue author (or staff)
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
         """
+        _ = pk
+
         project = self.get_object()
+
+        # [PERMISSION CHECK #1 - PROJECT SCOPE]
+        # Enforces permission_classes returned by get_permissions() for this action.
+        # For issue_detail, we configured: IsAuthenticated + IsProjectContributor.
+        # This blocks any user who is not staff / project author / project contributor.
         self.check_object_permissions(request, project)
 
         try:
@@ -501,30 +550,46 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # [DATA SCOPE CHECK - ISSUE MUST BELONG TO PROJECT]
+        # Even if the user is a contributor, they can only access issues
+        # tied to this project.
         issue = get_object_or_404(
             self.get_issue_detail_queryset(),
             pk=target_issue_id,
             project=project,
         )
 
+        # READ is allowed for project contributors (already passed project-scope gate).
         if request.method == "GET":
             serializer = self.get_serializer(issue)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # staff OR issue author only
-        if not (request.user.is_staff or request.user.id == issue.author_id):
-            raise PermissionDenied(
-                "Seul l'auteur de l'issue (ou un admin) peut modifier/supprimer."
-            )
+        # [PERMISSION CHECK #2 - ISSUE WRITE SCOPE]
+        # For PUT/PATCH/DELETE, require issue author (or staff).
+        # This ensures contributors cannot modify/delete issues
+        # they did not create.
+        issue_perm = IsIssueAuthor()
+        if not issue_perm.has_object_permission(request, self, issue):
+            raise PermissionDenied(issue_perm.message)
 
+        if request.method == "DELETE":
+            issue.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # PUT/PATCH: ignore any incoming "project" field
+        # (URL controls project context)
         data = request.data.copy()
         data.pop("project", None)
 
         serializer = self.get_serializer(
-            issue, data=data, partial=(request.method == "PATCH")
+            issue,
+            data=data,
+            partial=(request.method == "PATCH"),
         )
         serializer.is_valid(raise_exception=True)
         issue = serializer.save()
+
+        # Reload with annotations/prefetch for consistent detail payload
         issue = self.get_issue_detail_queryset().get(pk=issue.pk)
 
         return Response(

@@ -37,7 +37,7 @@ class User(AbstractUser):
         - `save()` calls `full_clean()` so the rule applies outside the API too.
     """
 
-    email = models.EmailField(unique=True, null=True, blank=True)
+    email = models.EmailField(unique=True, blank=False, null=False)
     birth_date = models.DateField(null=False, blank=False)
 
     can_be_contacted = models.BooleanField(default=False)

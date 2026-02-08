@@ -36,7 +36,7 @@ ISSUE_EDITABLE_FIELDS = (
     "status",
 )
 
-COMMENTS_PREVIEW_LIMIT = 20
+COMMENTS_PREVIEW_LIMIT = 10
 
 
 # -------------------------------------------------------------------
@@ -89,31 +89,42 @@ class IssueAssigneeAddSerializer(serializers.Serializer):
 
     Context:
     - context["issue"] must be provided by the view.
+    - context["request"] must be provided by the view.
     """
 
-    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.none())
+    # Important:
+    # Use ALL users here so "Invalid pk" truly means "user does not exist".
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
 
-    def __init__(self, *args, **kwargs) -> None:
-        """Restrict dropdown queryset to contributors of the issue's project."""
-        super().__init__(*args, **kwargs)
+    def validate_user(self, user: User) -> User:
+        """
+        Field-level validation.
 
-        issue: Issue | None = self.context.get("issue")
-        if issue is not None:
-            self.fields["user"].queryset = issue.project.contributors.all()
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Validate contributor membership and prevent duplicates."""
+        This runs AFTER the PK is resolved against User.objects.all().
+        So if the user exists but is not a contributor, we can return
+        a truthful business error instead of "Invalid pk".
+        """
         issue: Issue = self.context["issue"]
-        user: User = attrs["user"]
 
         if not issue.project.is_contributor(user):
             raise serializers.ValidationError(
                 "L'utilisateur doit être contributeur du projet."
             )
 
+        return user
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Cross-field validation (needs issue + user).
+
+        Prevent duplicate assignments.
+        """
+        issue: Issue = self.context["issue"]
+        user: User = attrs["user"]
+
         if IssueAssignee.objects.filter(issue=issue, user=user).exists():
             raise serializers.ValidationError(
-                "Cet utilisateur est déjà assigné à cet issue."
+                {"user": "Cet utilisateur est déjà assigné à cet issue."}
             )
 
         return attrs
@@ -131,8 +142,9 @@ class IssueAssigneeAddSerializer(serializers.Serializer):
                 assigned_by=request.user,
             )
         except IntegrityError as exc:
+            # In case of race conditions, keep error consistent.
             raise serializers.ValidationError(
-                "Cet utilisateur est déjà assigné à cet issue."
+                {"user": "Cet utilisateur est déjà assigné à cet issue."}
             ) from exc
 
 

@@ -23,21 +23,20 @@ from .models import Contributor, Project
 User = get_user_model()
 
 
-ISSUES_PREVIEW_LIMIT = 10
+ISSUES_PREVIEW_LIMIT = 5
 
 # -------------------------------------------------------------
 # Project Serializers (Differentiates between fields in List & Detail)
 # -------------------------------------------------------------
 
 
-class ProjectCreateSerializer(serializers.ModelSerializer):
+class ProjectWriteSerializer(serializers.ModelSerializer):
     """
-    Input-only serializer for creating projects.
+    Write serializer for creating/updating projects.
 
     Author source:
     - defaults to request.user
     - can be overridden by context["author"] for admin flows
-    (e.g. /users/{id}/projects/)
     """
 
     class Meta:
@@ -48,7 +47,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             "project_type",
         )
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict[str, Any]) -> Project:
         """
         Create a project and ensure the owner is also a contributor.
 
@@ -207,7 +206,7 @@ class ContributorReadSerializer(serializers.ModelSerializer):
 
     user_id = serializers.IntegerField(source="user.id", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
-    email = serializers.CharField(source="user.email", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
 
     # Contributor.added_by is a FK -> expose who added the contributor
     added_by = serializers.CharField(source="added_by.username", read_only=True)
@@ -225,7 +224,7 @@ class ContributorReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ContributorCreateSerializer(serializers.Serializer):
+class ContributorWriteSerializer(serializers.Serializer):
     """
     Input-only serializer for adding a contributor to a project.
 

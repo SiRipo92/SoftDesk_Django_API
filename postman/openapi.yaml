@@ -6,10 +6,13 @@ info:
 paths:
   /api/v1/auth/login/:
     post:
-      operationId: auth_login_create
+      operationId: auth_login
       description: |-
-        Takes a set of user credentials and returns an access and refresh JSON web
-        token pair to prove the authentication of those credentials.
+        JWT login endpoint.
+
+        Returns:
+        - access: short-lived JWT access token
+        - refresh: longer-lived refresh token
       tags:
       - auth
       requestBody:
@@ -26,6 +29,7 @@ paths:
         required: true
       security:
       - bearerAuth: []
+      - {}
       responses:
         '200':
           content:
@@ -35,9 +39,12 @@ paths:
           description: ''
   /api/v1/auth/logout/:
     post:
-      operationId: auth_logout_create
-      description: Blackliste le refresh token fourni afin qu'il ne puisse plus être
-        réutilisé.
+      operationId: auth_logout
+      description: |-
+        JWT logout endpoint.
+
+        Server-side "logout" is implemented by blacklisting the refresh token.
+        Access tokens remain valid until they expire (typical JWT behavior).
       tags:
       - auth
       requestBody:
@@ -53,22 +60,21 @@ paths:
               $ref: '#/components/schemas/LogoutRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
-        '205':
-          description: Refresh token blacklisté.
-        '400':
-          description: Refresh token manquant.
-        '401':
-          description: Refresh token invalide.
+        '204':
+          description: No response body
   /api/v1/auth/refresh/:
     post:
-      operationId: auth_refresh_create
+      operationId: auth_refresh
       description: |-
-        Takes a refresh type JSON web token and returns an access type JSON web
-        token if the refresh token is valid.
+        JWT refresh endpoint.
+
+        Input:
+        - refresh: refresh token
+        Output:
+        - access: new access token (and optionally a new refresh if rotation enabled)
       tags:
       - auth
       requestBody:
@@ -85,6 +91,7 @@ paths:
         required: true
       security:
       - bearerAuth: []
+      - {}
       responses:
         '200':
           content:
@@ -92,6 +99,192 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefresh'
           description: ''
+  /api/v1/comments/:
+    get:
+      operationId: comments_list
+      description: |-
+        Global comments endpoint (admin-oriented).
+
+        Routes:
+        - GET    /comments/          -> admin only, all comments newest->oldest
+        - GET    /comments/{uuid}/   -> author or admin
+        - PATCH  /comments/{uuid}/   -> author or admin
+        - DELETE /comments/{uuid}/   -> author or admin
+
+        Note:
+        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+          Comment creation happens via: POST /issues/{issue_id}/comments/
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - comments
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommentAdminListList'
+          description: ''
+  /api/v1/comments/{uuid}/:
+    get:
+      operationId: comments_retrieve
+      description: |-
+        Global comments endpoint (admin-oriented).
+
+        Routes:
+        - GET    /comments/          -> admin only, all comments newest->oldest
+        - GET    /comments/{uuid}/   -> author or admin
+        - PATCH  /comments/{uuid}/   -> author or admin
+        - DELETE /comments/{uuid}/   -> author or admin
+
+        Note:
+        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+          Comment creation happens via: POST /issues/{issue_id}/comments/
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDetail'
+          description: ''
+    put:
+      operationId: comments_update
+      description: |-
+        Global comments endpoint (admin-oriented).
+
+        Routes:
+        - GET    /comments/          -> admin only, all comments newest->oldest
+        - GET    /comments/{uuid}/   -> author or admin
+        - PATCH  /comments/{uuid}/   -> author or admin
+        - DELETE /comments/{uuid}/   -> author or admin
+
+        Note:
+        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+          Comment creation happens via: POST /issues/{issue_id}/comments/
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CommentWriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentWrite'
+          description: ''
+    patch:
+      operationId: comments_partial_update
+      description: |-
+        Global comments endpoint (admin-oriented).
+
+        Routes:
+        - GET    /comments/          -> admin only, all comments newest->oldest
+        - GET    /comments/{uuid}/   -> author or admin
+        - PATCH  /comments/{uuid}/   -> author or admin
+        - DELETE /comments/{uuid}/   -> author or admin
+
+        Note:
+        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+          Comment creation happens via: POST /issues/{issue_id}/comments/
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCommentWriteRequest'
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentWrite'
+          description: ''
+    delete:
+      operationId: comments_destroy
+      description: |-
+        Global comments endpoint (admin-oriented).
+
+        Routes:
+        - GET    /comments/          -> admin only, all comments newest->oldest
+        - GET    /comments/{uuid}/   -> author or admin
+        - PATCH  /comments/{uuid}/   -> author or admin
+        - DELETE /comments/{uuid}/   -> author or admin
+
+        Note:
+        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
+          Comment creation happens via: POST /issues/{issue_id}/comments/
+      parameters:
+      - in: path
+        name: uuid
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - comments
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/issues/:
     get:
       operationId: issues_list
@@ -115,7 +308,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -148,7 +340,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -192,7 +383,6 @@ paths:
               $ref: '#/components/schemas/IssueWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -235,7 +425,6 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedIssueWriteRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -267,7 +456,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -296,7 +484,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -333,7 +520,6 @@ paths:
               $ref: '#/components/schemas/IssueAssigneeAddRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -364,7 +550,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -397,7 +582,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -435,7 +619,6 @@ paths:
               $ref: '#/components/schemas/CommentWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -466,7 +649,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -508,7 +690,6 @@ paths:
               $ref: '#/components/schemas/CommentWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -549,7 +730,6 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedCommentWriteRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -579,7 +759,6 @@ paths:
       tags:
       - issues
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -604,7 +783,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -627,16 +805,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -644,7 +821,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectCreate'
+                $ref: '#/components/schemas/ProjectWrite'
           description: ''
   /api/v1/projects/{id}/:
     get:
@@ -665,7 +842,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -695,16 +871,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ProjectCreateRequest'
+              $ref: '#/components/schemas/ProjectWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -712,7 +887,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectCreate'
+                $ref: '#/components/schemas/ProjectWrite'
           description: ''
     patch:
       operationId: projects_partial_update
@@ -735,15 +910,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+              $ref: '#/components/schemas/PatchedProjectWriteRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+              $ref: '#/components/schemas/PatchedProjectWriteRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedProjectCreateRequest'
+              $ref: '#/components/schemas/PatchedProjectWriteRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -751,7 +925,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectCreate'
+                $ref: '#/components/schemas/ProjectWrite'
           description: ''
     delete:
       operationId: projects_destroy
@@ -771,7 +945,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -800,7 +973,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -836,7 +1008,6 @@ paths:
             schema:
               $ref: '#/components/schemas/ContributorCreateRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -868,7 +1039,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -903,7 +1073,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -939,7 +1108,6 @@ paths:
               $ref: '#/components/schemas/IssueWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -974,7 +1142,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1020,7 +1187,6 @@ paths:
               $ref: '#/components/schemas/IssueWriteRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1065,7 +1231,6 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedIssueWriteRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1099,7 +1264,6 @@ paths:
       tags:
       - projects
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1125,7 +1289,6 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1159,7 +1322,6 @@ paths:
               $ref: '#/components/schemas/UserRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       - {}
@@ -1190,7 +1352,6 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1231,7 +1392,6 @@ paths:
               $ref: '#/components/schemas/UserRequest'
         required: true
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1271,7 +1431,6 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUserRequest'
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1300,7 +1459,6 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - jwtAuth: []
       - bearerAuth: []
       responses:
@@ -1311,6 +1469,50 @@ components:
     BlankEnum:
       enum:
       - ''
+    CommentAdminList:
+      type: object
+      description: |-
+        Admin list representation for /comments/.
+
+        Keeps payload smaller than full detail while still giving enough context
+        to audit comments globally.
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        issue_id:
+          type: integer
+          readOnly: true
+        author_id:
+          type: integer
+          readOnly: true
+        author_username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_id
+      - author_username
+      - created_at
+      - description
+      - issue_id
+      - project_id
+      - updated_at
+      - uuid
     CommentDetail:
       type: object
       description: |-
@@ -1401,14 +1603,29 @@ components:
       - description
       - updated_at
       - uuid
+    CommentWrite:
+      type: object
+      description: |-
+        Write serializer for comment create/update.
+
+        Rules:
+        - `issue` is not writable here (nested route controls it).
+        - `issue` must be provided via serializer context.
+        - `author` is always request.user.
+      properties:
+        description:
+          type: string
+          maxLength: 500
+      required:
+      - description
     CommentWriteRequest:
       type: object
       description: |-
         Write serializer for comment create/update.
 
-        IMPORTANT:
-        - We do NOT expose `issue` in writable fields in nested endpoints.
-        - `issue` is taken from serializer context (provided by the IssueViewSet action).
+        Rules:
+        - `issue` is not writable here (nested route controls it).
+        - `issue` must be provided via serializer context.
         - `author` is always request.user.
       properties:
         description:
@@ -1459,6 +1676,7 @@ components:
           readOnly: true
         email:
           type: string
+          format: email
           readOnly: true
         added_by:
           type: string
@@ -1773,18 +1991,40 @@ components:
     LogoutRequest:
       type: object
       description: |-
-        Serializer for logout payload.
+        Logout payload for JWT.
 
-        Expected payload:
-            { "refresh": "<refresh_token>" }
+        We blacklist the refresh token so it can’t be used again.
+        Access tokens are not stored server-side; they remain valid until expiry.
       properties:
         refresh:
           type: string
           writeOnly: true
           minLength: 1
-          description: Refresh token JWT à blacklister.
       required:
       - refresh
+    PaginatedCommentAdminListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentAdminList'
     PaginatedCommentSummaryList:
       type: object
       required:
@@ -1951,9 +2191,9 @@ components:
       description: |-
         Write serializer for comment create/update.
 
-        IMPORTANT:
-        - We do NOT expose `issue` in writable fields in nested endpoints.
-        - `issue` is taken from serializer context (provided by the IssueViewSet action).
+        Rules:
+        - `issue` is not writable here (nested route controls it).
+        - `issue` must be provided via serializer context.
         - `author` is always request.user.
       properties:
         description:
@@ -1987,15 +2227,14 @@ components:
           - $ref: '#/components/schemas/BlankEnum'
         status:
           $ref: '#/components/schemas/StatusEnum'
-    PatchedProjectCreateRequest:
+    PatchedProjectWriteRequest:
       type: object
       description: |-
-        Input-only serializer for creating projects.
+        Write serializer for creating/updating projects.
 
         Author source:
         - defaults to request.user
         - can be overridden by context["author"] for admin flows
-        (e.g. /users/{id}/projects/)
       properties:
         name:
           type: string
@@ -2011,8 +2250,10 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash via set_password()
-        - Enforce birth_date business rules at the API boundary
+        - Accept plaintext password (write-only) and hash it:
+          - on create: via UserManager.create_user()
+          - on update: via instance.set_password()
+        - Enforce birth_date rules at the API boundary
       properties:
         username:
           type: string
@@ -2024,8 +2265,7 @@ components:
         email:
           type: string
           format: email
-          nullable: true
-          maxLength: 254
+          minLength: 1
         first_name:
           type: string
           maxLength: 150
@@ -2054,47 +2294,6 @@ components:
         * `LOW` - low
         * `MEDIUM` - medium
         * `HIGH` - high
-    ProjectCreate:
-      type: object
-      description: |-
-        Input-only serializer for creating projects.
-
-        Author source:
-        - defaults to request.user
-        - can be overridden by context["author"] for admin flows
-        (e.g. /users/{id}/projects/)
-      properties:
-        name:
-          type: string
-          maxLength: 150
-        description:
-          type: string
-        project_type:
-          $ref: '#/components/schemas/ProjectTypeEnum'
-      required:
-      - name
-      - project_type
-    ProjectCreateRequest:
-      type: object
-      description: |-
-        Input-only serializer for creating projects.
-
-        Author source:
-        - defaults to request.user
-        - can be overridden by context["author"] for admin flows
-        (e.g. /users/{id}/projects/)
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 150
-        description:
-          type: string
-        project_type:
-          $ref: '#/components/schemas/ProjectTypeEnum'
-      required:
-      - name
-      - project_type
     ProjectDetail:
       type: object
       description: |-
@@ -2225,6 +2424,45 @@ components:
         * `FRONT_END` - Front-end
         * `IOS` - iOS
         * `ANDROID` - Android
+    ProjectWrite:
+      type: object
+      description: |-
+        Write serializer for creating/updating projects.
+
+        Author source:
+        - defaults to request.user
+        - can be overridden by context["author"] for admin flows
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        project_type:
+          $ref: '#/components/schemas/ProjectTypeEnum'
+      required:
+      - name
+      - project_type
+    ProjectWriteRequest:
+      type: object
+      description: |-
+        Write serializer for creating/updating projects.
+
+        Author source:
+        - defaults to request.user
+        - can be overridden by context["author"] for admin flows
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+        project_type:
+          $ref: '#/components/schemas/ProjectTypeEnum'
+      required:
+      - name
+      - project_type
     StatusEnum:
       enum:
       - TO DO
@@ -2296,8 +2534,10 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash via set_password()
-        - Enforce birth_date business rules at the API boundary
+        - Accept plaintext password (write-only) and hash it:
+          - on create: via UserManager.create_user()
+          - on update: via instance.set_password()
+        - Enforce birth_date rules at the API boundary
       properties:
         id:
           type: integer
@@ -2311,8 +2551,6 @@ components:
         email:
           type: string
           format: email
-          nullable: true
-          maxLength: 254
         first_name:
           type: string
           maxLength: 150
@@ -2328,6 +2566,7 @@ components:
           type: boolean
       required:
       - birth_date
+      - email
       - id
       - username
     UserDetail:
@@ -2352,8 +2591,6 @@ components:
         email:
           type: string
           format: email
-          nullable: true
-          maxLength: 254
         first_name:
           type: string
           maxLength: 150
@@ -2395,6 +2632,7 @@ components:
       - birth_date
       - contributed_projects_preview
       - created_at
+      - email
       - id
       - num_projects_added_as_contrib
       - num_projects_owned
@@ -2417,7 +2655,6 @@ components:
           type: string
           format: email
           readOnly: true
-          nullable: true
         projects_count:
           type: integer
           readOnly: true
@@ -2457,8 +2694,10 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash via set_password()
-        - Enforce birth_date business rules at the API boundary
+        - Accept plaintext password (write-only) and hash it:
+          - on create: via UserManager.create_user()
+          - on update: via instance.set_password()
+        - Enforce birth_date rules at the API boundary
       properties:
         username:
           type: string
@@ -2470,8 +2709,7 @@ components:
         email:
           type: string
           format: email
-          nullable: true
-          maxLength: 254
+          minLength: 1
         first_name:
           type: string
           maxLength: 150
@@ -2492,12 +2730,13 @@ components:
           description: Plaintext password (write-only). Hashed before saving.
       required:
       - birth_date
+      - email
       - username
   securitySchemes:
-    cookieAuth:
-      type: apiKey
-      in: cookie
-      name: sessionid
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
     jwtAuth:
       type: http
       scheme: bearer

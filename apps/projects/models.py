@@ -54,7 +54,7 @@ class Project(models.Model):
         blank=True,
     )
 
-    def is_contributor(self, user) -> bool:
+    def is_contributor(self, user: settings.AUTH_USER_MODEL) -> bool:
         """Return True if the user is a contributor on this project."""
         if not user or not getattr(user, "pk", None):
             return False

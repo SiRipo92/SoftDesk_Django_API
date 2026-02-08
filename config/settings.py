@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -40,8 +41,8 @@ INSTALLED_APPS = [
     "django_extensions",
     # Django default apps & third party…
     "rest_framework",
-    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
+    "rest_framework_simplejwt.token_blacklist",
     # Specific apps to project
     "apps.auth.apps.AuthConfig",
     "apps.users",
@@ -50,24 +51,29 @@ INSTALLED_APPS = [
     "apps.comments",
 ]
 
-# Minimal DRF/JWT baseline
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20,
-    "PAGE_SIZE_QUERY_PARAM": "page_size",
-    "MAX_PAGE_SIZE": 100,
-    # Swagger OpenAPI
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
 SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+
+# Minimal DRF/JWT baseline + session auth for browsable API in dev
+DEFAULT_AUTH_CLASSES = [
+    "rest_framework_simplejwt.authentication.JWTAuthentication",
+]
+
+# Enable session auth only in development to support browsable API + admin session
+if DEBUG:
+    DEFAULT_AUTH_CLASSES.append("rest_framework.authentication.SessionAuthentication")
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": tuple(DEFAULT_AUTH_CLASSES),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # Uses the shared pagination policy everywhere
+    "DEFAULT_PAGINATION_CLASS": "common.paginator.DefaultPagination",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SPECTACULAR_SETTINGS = {
@@ -76,8 +82,10 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    "SERVERS": [{"url": "http://localhost:8000", "description": "Local"}],
+    # Apply Bearer JWT globally in the docs
     "SECURITY": [{"bearerAuth": []}],
-    "COMPONENTS": {
+    "APPEND_COMPONENTS": {
         "securitySchemes": {
             "bearerAuth": {
                 "type": "http",
@@ -86,10 +94,6 @@ SPECTACULAR_SETTINGS = {
             }
         }
     },
-    # OpenAPI 3 "servers" block
-    "SERVERS": [
-        {"url": "http://localhost:8000", "description": "Local"},
-    ],
 }
 
 MIDDLEWARE = [

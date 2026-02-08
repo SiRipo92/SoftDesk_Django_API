@@ -1,24 +1,32 @@
 from __future__ import annotations
 
-from django.db.models import Count
+from typing import Any
+
+from django.db.models import Count, QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from apps.comments.models import Comment
-from apps.comments.permissions import IsCommentAuthorOrStaff
 from apps.comments.serializers import (
     CommentDetailSerializer,
     CommentSummarySerializer,
     CommentWriteSerializer,
 )
+from common.permissions import (
+    IsCommentAuthorOrStaff,
+    IsIssueAuthor,
+    IsProjectContributor,
+)
 
 from .models import Issue, IssueAssignee
-from .permissions import IsIssueAuthor
 from .serializers import (
     IssueAssigneeAddSerializer,
     IssueAssigneeReadSerializer,
@@ -54,28 +62,55 @@ class IssueViewSet(
     # model metadata.
     queryset = Issue.objects.none()
 
+    def __init__(self, **kwargs: Any) -> None:
+        """
+        Initialize per-request cache attributes.
+
+        Some linters warn if instance attributes are created outside __init__.
+        DRF instantiates view classes per request, so caching here is safe.
+        """
+        super().__init__(**kwargs)
+        self._cached_issue: Issue | None = None
+
+    def _get_cached_issue(self) -> Issue:
+        """
+        Return the Issue for detail routes, cached for the lifetime of the request.
+
+        get_object() already performs object-level permission checks via
+        check_object_permissions(request, obj).
+        """
+        if self._cached_issue is None:
+            self._cached_issue = self.get_object()
+        return self._cached_issue
+
     # ------------------------------------------------------------------
     # Queryset scope
     # ------------------------------------------------------------------
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[Issue]:
         """
         Return issues visible to the current authenticated user.
 
         - staff: all issues
         - non-staff: issues in projects where user is a contributor
         """
-        # drf-spectacular sets this flag during schema generation.
-        # Return a lightweight queryset with the correct model
-        # so it can infer path param types.
+        # drf-spectacular may call get_queryset() while generating the OpenAPI schema.
+        # During schema generation there is no real authenticated request/user, so we
+        # return a safe queryset to let spectacular infer model/field metadata.
         if getattr(self, "swagger_fake_view", False):
             return Issue.objects.all()
 
         user = self.request.user
 
-        qs = Issue.objects.select_related("project", "author")
+        qs: QuerySet[Issue] = Issue.objects.select_related("project", "author")
 
         # Only fetch heavy relations when needed
+        # Conditionally prefetches based on action for optimization b/c
+        # For list endpoints we only need assignee IDs, so fetching
+        # IssueAssignee rows is enough.
+        #
+        # For detail/assignees endpoints we need usernames/emails, so we
+        # prefetch user and assigned_by too.
         if self.action in ("retrieve", "assignees", "remove_assignee"):
             qs = qs.prefetch_related(
                 "assignee_links__user",
@@ -89,17 +124,25 @@ class IssueViewSet(
             comments_count=Count("comments", distinct=True),
         ).order_by("-updated_at")
 
-        if user.is_staff:
+        if getattr(user, "is_staff", False):
             return qs
 
-        return qs.filter(project__contributors=user).distinct()
+        # Non-staff: restrict issues to projects where user is a contributor.
+        # This also prevents non-members from probing issue IDs (returns 404).
+        return qs.filter(project__contributors=user)
 
     # ------------------------------------------------------------------
     # Context + serializer selection
     # ------------------------------------------------------------------
 
-    def get_serializer_context(self):
-        """Inject issue into serializer context for nested sub-resources."""
+    def get_serializer_context(self) -> dict[str, Any]:
+        """
+        Inject issue into serializer context for nested sub-resources.
+
+        CommentWriteSerializer.create() expects:
+        - request in context (provided by DRF)
+        - issue in context (derived from URL, not trusted from payload)
+        """
         context = super().get_serializer_context()
 
         if self.action in (
@@ -108,11 +151,11 @@ class IssueViewSet(
             "comments",
             "comment_detail",
         ):
-            context["issue"] = self.get_object()
+            context["issue"] = self._get_cached_issue()
 
         return context
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> type[BaseSerializer]:
         """Select serializers per action and method."""
         if self.action == "list":
             return IssueListSerializer
@@ -142,10 +185,12 @@ class IssueViewSet(
 
         return IssueDetailSerializer
 
-    def get_permissions(self):
+    def get_permissions(self) -> list[BasePermission]:
         """
         - update/partial_update/destroy: issue author / staff
-        - assignees POST/DELETE: issue author
+        - assignees POST/DELETE: issue author / staff
+        - comments POST: project contributor / staff
+        - comment_detail PUT/PATCH/DELETE: comment author / staff (checked manually)
         - everything else: authenticated
         """
         if self.action in ("update", "partial_update", "destroy"):
@@ -156,6 +201,10 @@ class IssueViewSet(
             "DELETE",
         ):
             return [permissions.IsAuthenticated(), IsIssueAuthor()]
+
+        if self.action == "comments" and self.request.method == "POST":
+            # This will be evaluated against the Issue object (via get_object()).
+            return [permissions.IsAuthenticated(), IsProjectContributor()]
 
         return [permissions.IsAuthenticated()]
 
@@ -179,12 +228,14 @@ class IssueViewSet(
         responses={201: IssueAssigneeReadSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="assignees")
-    def assignees(self, request: Request, pk=None) -> Response:
+    def assignees(self, request: Request, pk: str | None = None) -> Response:
         """
         GET  /issues/{id}/assignees/
         POST /issues/{id}/assignees/   body: {"user": <user_id>}
         """
-        issue = self.get_object()
+        _ = pk  # required by DRF router for detail routes
+
+        issue = self._get_cached_issue()
 
         if request.method == "GET":
             qs = issue.assignee_links.select_related("user", "assigned_by").order_by(
@@ -214,8 +265,8 @@ class IssueViewSet(
         parameters=[
             OpenApiParameter(
                 name="user_id",
-                type=int,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.INT,
+                location="path",
                 description="ID de l'utilisateur à désassigner.",
             ),
         ],
@@ -226,9 +277,17 @@ class IssueViewSet(
         },
     )
     @action(detail=True, methods=["delete"], url_path=r"assignees/(?P<user_id>\d+)")
-    def remove_assignee(self, request: Request, user_id=None, pk=None) -> Response:
+    def remove_assignee(
+        self,
+        request: Request,
+        user_id: str | None = None,
+        pk: str | None = None,
+    ) -> Response:
         """DELETE /issues/{id}/assignees/{user_id}/"""
-        issue = self.get_object()
+        _unused_pk: str | None = pk
+        _unused_request: Request = request
+
+        issue = self._get_cached_issue()
 
         try:
             user_id_int = int(user_id)
@@ -262,12 +321,14 @@ class IssueViewSet(
         responses={201: CommentDetailSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="comments")
-    def comments(self, request: Request, pk=None) -> Response:
+    def comments(self, request: Request, pk: str | None = None) -> Response:
         """
         GET  /issues/{issue_id}/comments/
         POST /issues/{issue_id}/comments/   body: {"description": "..."}
         """
-        issue = self.get_object()
+        _ = pk
+
+        issue = self._get_cached_issue()
 
         if request.method == "GET":
             qs = (
@@ -283,10 +344,9 @@ class IssueViewSet(
             serializer = self.get_serializer(qs, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        if not (request.user.is_staff or issue.project.is_contributor(request.user)):
-            raise PermissionDenied(
-                "Vous devez être contributeur du projet pour commenter cet issue."
-            )
+        # get_object() already enforced object permissions.
+        # For POST on this action, get_permissions() includes IsProjectContributor,
+        # so non-contributors will be blocked before reaching serializer.save().
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -303,8 +363,8 @@ class IssueViewSet(
         parameters=[
             OpenApiParameter(
                 name="comment_uuid",
-                type=str,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.UUID,
+                location="path",
                 description="UUID du commentaire.",
             ),
         ],
@@ -316,8 +376,8 @@ class IssueViewSet(
         parameters=[
             OpenApiParameter(
                 name="comment_uuid",
-                type=str,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.UUID,
+                location="path",
                 description="UUID du commentaire.",
             ),
         ],
@@ -330,8 +390,8 @@ class IssueViewSet(
         parameters=[
             OpenApiParameter(
                 name="comment_uuid",
-                type=str,
-                location=OpenApiParameter.PATH,
+                type=OpenApiTypes.UUID,
+                location="path",
                 description="UUID du commentaire.",
             ),
         ],
@@ -346,10 +406,13 @@ class IssueViewSet(
         self,
         request: Request,
         comment_uuid: str | None = None,
-        pk=None,
+        pk: str | None = None,
     ) -> Response:
         """GET/PUT/PATCH/DELETE /issues/{issue_id}/comments/{uuid}/"""
+        _ = pk
+
         issue = self.get_object()
+        self._cached_issue = issue
 
         comment = get_object_or_404(
             Comment.objects.select_related("author", "issue", "issue__project"),
@@ -361,22 +424,19 @@ class IssueViewSet(
             serializer = self.get_serializer(comment)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        perm = IsCommentAuthorOrStaff()
-        if not perm.has_object_permission(request, self, comment):
-            raise PermissionDenied(
-                "Modification interdite : auteur du commentaire ou administrateur "
-                "uniquement."
-            )
+        # Manual object-level permission gate for write operations.
+        comment_perm = IsCommentAuthorOrStaff()
+        if not comment_perm.has_object_permission(request, self, comment):
+            raise PermissionDenied(comment_perm.message)
 
         if request.method == "DELETE":
             comment.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
 
-        is_partial = request.method == "PATCH"
         serializer = self.get_serializer(
             comment,
             data=request.data,
-            partial=is_partial,
+            partial=(request.method == "PATCH"),
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
