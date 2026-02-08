@@ -71,10 +71,8 @@ if DEBUG:
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": tuple(DEFAULT_AUTH_CLASSES),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 10,
-    "PAGE_SIZE_QUERY_PARAM": "page_size",
-    "MAX_PAGE_SIZE": 100,
+    # Uses the shared pagination policy everywhere
+    "DEFAULT_PAGINATION_CLASS": "common.paginator.DefaultPagination",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
@@ -85,10 +83,8 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SERVERS": [{"url": "http://localhost:8000", "description": "Local"}],
-
     # Apply Bearer JWT globally in the docs
     "SECURITY": [{"bearerAuth": []}],
-
     "APPEND_COMPONENTS": {
         "securitySchemes": {
             "bearerAuth": {
