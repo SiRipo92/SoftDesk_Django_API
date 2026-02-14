@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+if TYPE_CHECKING:
+    # Import only for typing (avoids runtime import cycles)
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.db.models.manager import Manager
+
+    from apps.issues.models import Issue
+    from apps.users.models import User
 
 class ProjectType(models.TextChoices):
     """Allowed values for a project's type/category."""
@@ -54,15 +63,32 @@ class Project(models.Model):
         blank=True,
     )
 
-    def is_contributor(self, user: settings.AUTH_USER_MODEL) -> bool:
+    if TYPE_CHECKING:
+        # Default manager injected by Django
+        objects: "Manager[Project]"
+
+        # FK id column injected by Django
+        author_id: int
+
+        # Runtime accessor for M2M is a manager-like object (supports .filter(), .exists(), etc.)
+        contributors: "Manager[User]"
+
+        # Reverse relation from Contributor.project (related_name="memberships")
+        memberships: "Manager[Contributor]"
+
+        # Reverse relation from Issue.project (related_name="issues")
+        issues: "Manager[Issue]"
+
+    def is_contributor(self, user: "AbstractBaseUser | None") -> bool:
         """Return True if the user is a contributor on this project."""
         if not user or not getattr(user, "pk", None):
             return False
-        return self.contributors.filter(pk=user.pk).exists()
+        contributors_manager = cast(Any, self.contributors)
+        return contributors_manager.filter(pk=user.pk).exists()
 
     def __str__(self) -> str:
         """Return a readable string representation for admin/debug."""
-        return self.name
+        return str(self.name)
 
 
 class Contributor(models.Model):
@@ -102,6 +128,15 @@ class Contributor(models.Model):
         related_name="contributors_added",
     )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    if TYPE_CHECKING:
+        # Default manager injected by Django (for Contributor.objects)
+        objects: "Manager[Contributor]"
+
+        # Implicit FK id columns created by Django
+        user_id: int
+        project_id: int
+        added_by_id: int
 
     class Meta:
         """Model constraints and metadata for Contributor."""

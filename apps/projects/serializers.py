@@ -229,7 +229,7 @@ class ContributorWriteSerializer(serializers.Serializer):
     Input-only serializer for adding a contributor to a project.
 
     The client sends lookup keys:
-      - { "username": "..." } OR { "email": "..." }
+      - { "username": "..."}  OR { "email": "..." }
 
     Context requirements (provided by the view):
     - context["request"]

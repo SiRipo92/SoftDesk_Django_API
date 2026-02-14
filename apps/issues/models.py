@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
 from apps.projects.models import Project
+
+if TYPE_CHECKING:
+    # typing-only import (no runtime import cycles)
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.db.models.manager import Manager
+    from apps.comments.models import Comment
 
 # --------------------------------------------------
 # Text field options (Priority, Tag, Status)
@@ -103,6 +111,19 @@ class Issue(models.Model):
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
+    if TYPE_CHECKING:
+        # Instance attributes (runtime objects, not Field descriptors)
+        project: Project
+        author: "AbstractBaseUser"
+
+        # Implicit FK id columns created by Django
+        project_id: int | None
+        author_id: int | None
+
+        # Reverse relations (managers) created by related_name=
+        assignee_links: "models.Manager[IssueAssignee]"
+        comments: "models.Manager[Comment]"
+
     def clean(self) -> None:
         """
         Validate rules that depend on multiple fields.
@@ -117,7 +138,9 @@ class Issue(models.Model):
         if self.project_id is None or self.author_id is None:
             return
 
-        if not self.project.is_contributor(self.author):
+        project = cast(Project, self.project)
+
+        if not project.is_contributor(self.author):
             raise ValidationError(
                 {"author": "L'auteur doit être contributeur du projet."}
             )
@@ -135,7 +158,7 @@ class Issue(models.Model):
 
     def __str__(self) -> str:
         """Readable label for admin/debug."""
-        return self.title
+        return str(self.title)
 
 
 class IssueAssignee(models.Model):
@@ -177,6 +200,14 @@ class IssueAssignee(models.Model):
             models.Index(fields=["issue"]),
             models.Index(fields=["user"]),
         ]
+
+    if TYPE_CHECKING:
+        # Default manager injected by Django (for IssueAssignee.objects)
+        objects: "Manager[IssueAssignee]"
+
+        # Implicit FK id columns created by Django
+        issue_id: int
+        user_id: int
 
     def __str__(self) -> str:
         return f"{self.issue_id} -> {self.user_id}"

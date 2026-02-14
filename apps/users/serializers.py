@@ -16,7 +16,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count
 from drf_spectacular.utils import extend_schema_field
@@ -24,8 +23,7 @@ from rest_framework import serializers
 
 from apps.projects.models import Project
 from common.validators import validate_birth_date_min_age
-
-User = get_user_model()
+from .models import User
 
 
 class UserProjectPreviewSerializer(serializers.ModelSerializer):
@@ -78,7 +76,7 @@ class UserSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
-    def validate_birth_date(self, value) -> date:
+    def validate_birth_date(self, value: date) -> date:
         """Validate the birth_date field via shared project validator."""
         try:
             validate_birth_date_min_age(value)
@@ -118,7 +116,9 @@ class UserSerializer(serializers.ModelSerializer):
         - Prevents bypassing manager-level invariants.
         - Keeps model validation via your overridden save() calling full_clean().
         """
-        password = validated_data.pop("password")
+        password = validated_data.pop("password", None)
+        if password is None:
+            raise serializers.ValidationError({"password": "Ce champ est requis."})
 
         try:
             user = User.objects.create_user(password=password, **validated_data)
@@ -194,7 +194,9 @@ class UserDetailSerializer(UserSerializer):
             .annotate(issues_count=Count("issues", distinct=True))
             .order_by("-updated_at")[:5]
         )
-        return UserProjectPreviewSerializer(qs, many=True).data
+        serializer = UserProjectPreviewSerializer(
+            qs, many=True, context=self.context)
+        return [dict(item) for item in serializer.data]
 
     @extend_schema_field(UserProjectPreviewSerializer(many=True))
     def get_contributed_projects_preview(self, obj: User) -> list[dict[str, Any]]:
@@ -202,7 +204,7 @@ class UserDetailSerializer(UserSerializer):
         Return up to 5 recently updated projects where the user is a contributor.
 
         Owned projects are excluded to avoid duplication when the owner is also
-        present in the contributors relation.
+        present in the /contributors relation.
         """
         qs = (
             Project.objects.filter(contributors=obj)
@@ -211,4 +213,5 @@ class UserDetailSerializer(UserSerializer):
             .annotate(issues_count=Count("issues"))
             .order_by("-updated_at")[:5]
         )
-        return UserProjectPreviewSerializer(qs, many=True).data
+        serializer = UserProjectPreviewSerializer(qs, many=True, context=self.context)
+        return [dict(item) for item in serializer.data]

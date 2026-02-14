@@ -246,7 +246,7 @@ class IsProjectContributor(AuthenticatedPermission, ProjectResolverMixin):
 
 class IsIssueAuthor(IsAuthorOrReadOnly):
     """
-    Allow write operations only for the Issue author (or staff).
+    Allow "write" operations only for the Issue author (or staff).
 
     Inherits the write gate behavior from IsAuthorOrReadOnly.
     """

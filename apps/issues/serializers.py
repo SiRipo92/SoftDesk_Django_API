@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError
 from rest_framework import serializers
@@ -20,8 +19,7 @@ from rest_framework import serializers
 from apps.comments.serializers import CommentSummarySerializer
 
 from .models import Issue, IssueAssignee
-
-User = get_user_model()
+from apps.users.models import User
 
 
 # -------------------------------------------------------------------
@@ -368,7 +366,11 @@ class IssueDetailSerializer(serializers.ModelSerializer):
         qs = obj.comments.select_related("author").order_by("-created_at")[
             :COMMENTS_PREVIEW_LIMIT
         ]
-        return CommentSummarySerializer(qs, many=True, context=self.context).data
+        serializer = CommentSummarySerializer(qs, many=True, context=self.context)
+
+        # DRF returns ReturnList[ReturnDict];
+        # convert to plain dicts for typing.
+        return [dict(item) for item in serializer.data]
 
     def get_comments_count(self, obj: Issue) -> int:
         """
