@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -20,6 +20,7 @@ from apps.comments.serializers import (
     CommentSummarySerializer,
     CommentWriteSerializer,
 )
+from apps.projects.models import Contributor
 from common.permissions import (
     IsCommentAuthorOrStaff,
     IsIssueAuthor,
@@ -89,10 +90,12 @@ class IssueViewSet(
 
     def get_queryset(self) -> QuerySet[Issue]:
         """
-        Return issues visible to the current authenticated user.
+        Queryset for issues.
 
         - staff: all issues
-        - non-staff: issues in projects where user is a contributor
+        - non-staff:
+            - list: only issues from projects where the user is author or contributor
+            - detail routes: unfiltered; permissions decide (403 vs 404)
         """
         # drf-spectacular may call get_queryset() while generating the OpenAPI schema.
         # During schema generation there is no real authenticated request/user, so we
@@ -102,34 +105,40 @@ class IssueViewSet(
 
         user = self.request.user
 
+        # Base: join cheap FK relations in the same query.
         qs: QuerySet[Issue] = Issue.objects.select_related("project", "author")
 
-        # Only fetch heavy relations when needed
-        # Conditionally prefetches based on action for optimization b/c
-        # For list endpoints we only need assignee IDs, so fetching
-        # IssueAssignee rows is enough.
-        #
-        # For detail/assignees endpoints we need usernames/emails, so we
-        # prefetch user and assigned_by too.
-        if self.action in ("retrieve", "assignees", "remove_assignee"):
-            qs = qs.prefetch_related(
-                "assignee_links__user",
-                "assignee_links__assigned_by",
-            )
+        # Prefetch IssueAssignee efficiently:
+        # - list: we only need user_id (AssignedUserIdsMixin), so load minimal columns
+        # - detail/assignees: we need user + assigned_by identity, so join them once
+        if self.action == "list":
+            assignees_qs = IssueAssignee.objects.only("id", "issue_id", "user_id")
         else:
-            qs = qs.prefetch_related("assignee_links")
+            assignees_qs = IssueAssignee.objects.select_related("user", "assigned_by")
+
+        qs = qs.prefetch_related(Prefetch("assignee_links", queryset=assignees_qs))
 
         qs = qs.annotate(
-            assignees_count=Count("assignee_links__user", distinct=True),
+            assignees_count=Count("assignee_links", distinct=True),
             comments_count=Count("comments", distinct=True),
         ).order_by("-updated_at")
 
         if getattr(user, "is_staff", False):
             return qs
 
-        # Non-staff: restrict issues to projects where user is a contributor.
-        # This also prevents non-members from probing issue IDs (returns 404).
-        return qs.filter(project__contributors=user)
+        # IMPORTANT:
+        # Only scope visibility at the LIST level.
+        # For detail routes, do NOT filter here; let permissions return 403.
+        if self.action == "list":
+            is_member = Contributor.objects.filter(
+                project_id=OuterRef("project_id"),
+                user=user,
+            )
+            return qs.annotate(_is_member=Exists(is_member)).filter(
+                Q(project__author=user) | Q(_is_member=True)
+            )
+
+        return qs
 
     # ------------------------------------------------------------------
     # Context + serializer selection
@@ -187,24 +196,49 @@ class IssueViewSet(
 
     def get_permissions(self) -> list[BasePermission]:
         """
-        - update/partial_update/destroy: issue author / staff
-        - assignees POST/DELETE: issue author / staff
-        - comments POST: project contributor / staff
-        - comment_detail PUT/PATCH/DELETE: comment author / staff (checked manually)
-        - everything else: authenticated
+        Permissions by action:
+
+        - list: authenticated (visibility is filtered in get_queryset)
+        - retrieve + read sub-resources: contributor (or staff)
+        - issue write: contributor + issue author (or staff)
+        - assignees write: contributor + issue author (or staff)
+        - comment write: contributor (or staff)
+        - comment edit/delete: handled by IsCommentAuthorOrStaff in view logic
         """
-        if self.action in ("update", "partial_update", "destroy"):
-            return [permissions.IsAuthenticated(), IsIssueAuthor()]
+        # Global list endpoint is safe because get_queryset() already
+        # scopes visibility.
+        if self.action == "list":
+            return [permissions.IsAuthenticated()]
 
-        if self.action in ("assignees", "remove_assignee") and self.request.method in (
-            "POST",
-            "DELETE",
+        # Any endpoint that reveals issue/project data should
+        # require project membership.  (tuple)
+        if self.action in (
+            "retrieve",
+            "update",
+            "partial_update",
+            "destroy",
+            "assignees",
+            "remove_assignee",
+            "comments",
+            "comment_detail",
         ):
-            return [permissions.IsAuthenticated(), IsIssueAuthor()]
+            perms: list[BasePermission] = [
+                permissions.IsAuthenticated(),
+                IsProjectContributor(),
+            ]
 
-        if self.action == "comments" and self.request.method == "POST":
-            # This will be evaluated against the Issue object (via get_object()).
-            return [permissions.IsAuthenticated(), IsProjectContributor()]
+            # Issue modifications: only issue author (or staff)
+            if self.action in ("update", "partial_update", "destroy"):
+                perms.append(IsIssueAuthor())
+
+            # Assignees modifications: only issue author (or staff)
+            if self.action in (
+                "assignees",
+                "remove_assignee",
+            ) and self.request.method in ("POST", "DELETE"):
+                perms.append(IsIssueAuthor())
+
+            return perms
 
         return [permissions.IsAuthenticated()]
 

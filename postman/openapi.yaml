@@ -41,10 +41,11 @@ paths:
     post:
       operationId: auth_logout
       description: |-
-        JWT logout endpoint.
+        Expect JSON body:
+            { "refresh": "<token>" }
 
-        Server-side "logout" is implemented by blacklisting the refresh token.
-        Access tokens remain valid until they expire (typical JWT behavior).
+        Returns:
+            205 if blacklisted, 400 if missing, 401 if invalid token.
       tags:
       - auth
       requestBody:
@@ -61,10 +62,15 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
-          description: No response body
+          description: Refresh token blacklisted.
+        '400':
+          description: Refresh token missing/invalid/expired.
+        '401':
+          description: Not authenticated.
   /api/v1/auth/refresh/:
     post:
       operationId: auth_refresh
@@ -74,7 +80,7 @@ paths:
         Input:
         - refresh: refresh token
         Output:
-        - access: new access token (and optionally a new refresh if rotation enabled)
+        - access: new access token
       tags:
       - auth
       requestBody:
@@ -103,17 +109,14 @@ paths:
     get:
       operationId: comments_list
       description: |-
-        Global comments endpoint (admin-oriented).
+        Comment endpoints.
 
-        Routes:
-        - GET    /comments/          -> admin only, all comments newest->oldest
-        - GET    /comments/{uuid}/   -> author or admin
-        - PATCH  /comments/{uuid}/   -> author or admin
-        - DELETE /comments/{uuid}/   -> author or admin
+        This viewset provides a global entry point for comments, with visibility
+        scoped by the authenticated user unless the user is staff.
 
-        Note:
-        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
-          Comment creation happens via: POST /issues/{issue_id}/comments/
+        Security model:
+        - list: authenticated users can list comments (staff sees all; non-staff sees own)
+        - retrieve/update/destroy: authenticated + (author or staff)
       parameters:
       - name: page
         required: false
@@ -121,33 +124,37 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - comments
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedCommentAdminListList'
+                $ref: '#/components/schemas/PaginatedCommentListList'
           description: ''
   /api/v1/comments/{uuid}/:
     get:
       operationId: comments_retrieve
       description: |-
-        Global comments endpoint (admin-oriented).
+        Comment endpoints.
 
-        Routes:
-        - GET    /comments/          -> admin only, all comments newest->oldest
-        - GET    /comments/{uuid}/   -> author or admin
-        - PATCH  /comments/{uuid}/   -> author or admin
-        - DELETE /comments/{uuid}/   -> author or admin
+        This viewset provides a global entry point for comments, with visibility
+        scoped by the authenticated user unless the user is staff.
 
-        Note:
-        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
-          Comment creation happens via: POST /issues/{issue_id}/comments/
+        Security model:
+        - list: authenticated users can list comments (staff sees all; non-staff sees own)
+        - retrieve/update/destroy: authenticated + (author or staff)
       parameters:
       - in: path
         name: uuid
@@ -159,6 +166,7 @@ paths:
       - comments
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -170,17 +178,14 @@ paths:
     put:
       operationId: comments_update
       description: |-
-        Global comments endpoint (admin-oriented).
+        Comment endpoints.
 
-        Routes:
-        - GET    /comments/          -> admin only, all comments newest->oldest
-        - GET    /comments/{uuid}/   -> author or admin
-        - PATCH  /comments/{uuid}/   -> author or admin
-        - DELETE /comments/{uuid}/   -> author or admin
+        This viewset provides a global entry point for comments, with visibility
+        scoped by the authenticated user unless the user is staff.
 
-        Note:
-        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
-          Comment creation happens via: POST /issues/{issue_id}/comments/
+        Security model:
+        - list: authenticated users can list comments (staff sees all; non-staff sees own)
+        - retrieve/update/destroy: authenticated + (author or staff)
       parameters:
       - in: path
         name: uuid
@@ -204,6 +209,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -215,17 +221,14 @@ paths:
     patch:
       operationId: comments_partial_update
       description: |-
-        Global comments endpoint (admin-oriented).
+        Comment endpoints.
 
-        Routes:
-        - GET    /comments/          -> admin only, all comments newest->oldest
-        - GET    /comments/{uuid}/   -> author or admin
-        - PATCH  /comments/{uuid}/   -> author or admin
-        - DELETE /comments/{uuid}/   -> author or admin
+        This viewset provides a global entry point for comments, with visibility
+        scoped by the authenticated user unless the user is staff.
 
-        Note:
-        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
-          Comment creation happens via: POST /issues/{issue_id}/comments/
+        Security model:
+        - list: authenticated users can list comments (staff sees all; non-staff sees own)
+        - retrieve/update/destroy: authenticated + (author or staff)
       parameters:
       - in: path
         name: uuid
@@ -248,6 +251,7 @@ paths:
               $ref: '#/components/schemas/PatchedCommentWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -259,17 +263,14 @@ paths:
     delete:
       operationId: comments_destroy
       description: |-
-        Global comments endpoint (admin-oriented).
+        Comment endpoints.
 
-        Routes:
-        - GET    /comments/          -> admin only, all comments newest->oldest
-        - GET    /comments/{uuid}/   -> author or admin
-        - PATCH  /comments/{uuid}/   -> author or admin
-        - DELETE /comments/{uuid}/   -> author or admin
+        This viewset provides a global entry point for comments, with visibility
+        scoped by the authenticated user unless the user is staff.
 
-        Note:
-        - We intentionally DO NOT expose POST here to avoid duplicating creation logic.
-          Comment creation happens via: POST /issues/{issue_id}/comments/
+        Security model:
+        - list: authenticated users can list comments (staff sees all; non-staff sees own)
+        - retrieve/update/destroy: authenticated + (author or staff)
       parameters:
       - in: path
         name: uuid
@@ -281,6 +282,7 @@ paths:
       - comments
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -305,10 +307,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -341,6 +350,7 @@ paths:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -384,6 +394,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -426,6 +437,7 @@ paths:
               $ref: '#/components/schemas/PatchedIssueWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -457,6 +469,7 @@ paths:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -481,10 +494,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -521,6 +541,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '201':
@@ -551,6 +572,7 @@ paths:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -579,10 +601,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -620,6 +649,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '201':
@@ -638,6 +668,7 @@ paths:
         name: comment_uuid
         schema:
           type: string
+          format: uuid
         description: UUID du commentaire.
         required: true
       - in: path
@@ -650,6 +681,7 @@ paths:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -667,6 +699,7 @@ paths:
         name: comment_uuid
         schema:
           type: string
+          format: uuid
         description: UUID du commentaire.
         required: true
       - in: path
@@ -691,6 +724,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -708,6 +742,7 @@ paths:
         name: comment_uuid
         schema:
           type: string
+          format: uuid
         description: UUID du commentaire.
         required: true
       - in: path
@@ -731,6 +766,7 @@ paths:
               $ref: '#/components/schemas/PatchedCommentWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -748,6 +784,7 @@ paths:
         name: comment_uuid
         schema:
           type: string
+          format: uuid
         description: UUID du commentaire.
         required: true
       - in: path
@@ -760,6 +797,7 @@ paths:
       - issues
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -780,10 +818,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -815,6 +860,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '201':
@@ -843,6 +889,7 @@ paths:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -881,6 +928,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -919,6 +967,7 @@ paths:
               $ref: '#/components/schemas/PatchedProjectWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -946,6 +995,7 @@ paths:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -970,10 +1020,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1000,15 +1057,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ContributorCreateRequest'
+              $ref: '#/components/schemas/ContributorWriteRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/ContributorCreateRequest'
+              $ref: '#/components/schemas/ContributorWriteRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ContributorCreateRequest'
+              $ref: '#/components/schemas/ContributorWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '201':
@@ -1040,6 +1098,7 @@ paths:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -1070,10 +1129,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1109,6 +1175,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '201':
@@ -1125,6 +1192,17 @@ paths:
 
         - GET: contributors can view
         - PUT/PATCH/DELETE: staff OR issue author
+
+        Permission model (layered):
+        1) Project scope gate:
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
+           - prevents non-members from probing project issues by id
+
+        2) Issue write gate (PUT/PATCH/DELETE only):
+           - user must be the issue author (or staff)
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
       summary: Détail d'une issue dans le contexte d'un projet
       parameters:
       - in: path
@@ -1143,6 +1221,7 @@ paths:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1158,6 +1237,17 @@ paths:
 
         - GET: contributors can view
         - PUT/PATCH/DELETE: staff OR issue author
+
+        Permission model (layered):
+        1) Project scope gate:
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
+           - prevents non-members from probing project issues by id
+
+        2) Issue write gate (PUT/PATCH/DELETE only):
+           - user must be the issue author (or staff)
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
       summary: Modifier une issue (auteur ou admin)
       parameters:
       - in: path
@@ -1188,6 +1278,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1203,6 +1294,17 @@ paths:
 
         - GET: contributors can view
         - PUT/PATCH/DELETE: staff OR issue author
+
+        Permission model (layered):
+        1) Project scope gate:
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
+           - prevents non-members from probing project issues by id
+
+        2) Issue write gate (PUT/PATCH/DELETE only):
+           - user must be the issue author (or staff)
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
       summary: Modifier une issue (auteur ou admin)
       parameters:
       - in: path
@@ -1232,6 +1334,7 @@ paths:
               $ref: '#/components/schemas/PatchedIssueWriteRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1247,6 +1350,17 @@ paths:
 
         - GET: contributors can view
         - PUT/PATCH/DELETE: staff OR issue author
+
+        Permission model (layered):
+        1) Project scope gate:
+           - user must be authenticated AND be a project contributor
+           (or project author/staff)
+           - prevents non-members from probing project issues by id
+
+        2) Issue write gate (PUT/PATCH/DELETE only):
+           - user must be the issue author (or staff)
+           - contributors who are not the author can still READ,
+           but cannot modify/delete
       summary: Supprimer une issue (auteur ou admin)
       parameters:
       - in: path
@@ -1265,6 +1379,7 @@ paths:
       - projects
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -1286,10 +1401,17 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
       tags:
       - users
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1323,6 +1445,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       - {}
       responses:
@@ -1353,6 +1476,7 @@ paths:
       - users
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1393,6 +1517,7 @@ paths:
         required: true
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1432,6 +1557,7 @@ paths:
               $ref: '#/components/schemas/PatchedUserRequest'
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '200':
@@ -1460,6 +1586,7 @@ paths:
       - users
       security:
       - jwtAuth: []
+      - cookieAuth: []
       - bearerAuth: []
       responses:
         '204':
@@ -1469,50 +1596,6 @@ components:
     BlankEnum:
       enum:
       - ''
-    CommentAdminList:
-      type: object
-      description: |-
-        Admin list representation for /comments/.
-
-        Keeps payload smaller than full detail while still giving enough context
-        to audit comments globally.
-      properties:
-        uuid:
-          type: string
-          format: uuid
-          readOnly: true
-        description:
-          type: string
-          readOnly: true
-        project_id:
-          type: integer
-          readOnly: true
-        issue_id:
-          type: integer
-          readOnly: true
-        author_id:
-          type: integer
-          readOnly: true
-        author_username:
-          type: string
-          readOnly: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - author_id
-      - author_username
-      - created_at
-      - description
-      - issue_id
-      - project_id
-      - updated_at
-      - uuid
     CommentDetail:
       type: object
       description: |-
@@ -1567,6 +1650,28 @@ components:
       - project_id
       - project_name
       - updated_at
+      - uuid
+    CommentList:
+      type: object
+      description: |-
+        List representation for /comments/.
+
+        Keeps payload smaller than full detail while still giving enough context
+        to audit comments globally.
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          readOnly: true
+        project_id:
+          type: integer
+          readOnly: true
+        issue_id:
+          type: integer
+          readOnly: true
+      required:
+      - issue_id
+      - project_id
       - uuid
     CommentSummary:
       type: object
@@ -1634,25 +1739,6 @@ components:
           maxLength: 500
       required:
       - description
-    ContributorCreateRequest:
-      type: object
-      description: |-
-        Input-only serializer for adding a contributor to a project.
-
-        The client sends lookup keys:
-          - { "username": "..." } OR { "email": "..." }
-
-        Context requirements (provided by the view):
-        - context["request"]
-        - context["project"]
-      properties:
-        username:
-          type: string
-          minLength: 1
-        email:
-          type: string
-          format: email
-          minLength: 1
     ContributorRead:
       type: object
       description: |-
@@ -1687,6 +1773,25 @@ components:
       - membership_id
       - user_id
       - username
+    ContributorWriteRequest:
+      type: object
+      description: |-
+        Input-only serializer for adding a contributor to a project.
+
+        The client sends lookup keys:
+          - { "username": "..." } OR { "email": "..." }
+
+        Context requirements (provided by the view):
+        - context["request"]
+        - context["project"]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          minLength: 1
     IssueAssigneeAddRequest:
       type: object
       description: |-
@@ -1697,6 +1802,7 @@ components:
 
         Context:
         - context["issue"] must be provided by the view.
+        - context["request"] must be provided by the view.
       properties:
         user:
           type: integer
@@ -1991,18 +2097,19 @@ components:
     LogoutRequest:
       type: object
       description: |-
-        Logout payload for JWT.
+        Serializer for logout payload.
 
-        We blacklist the refresh token so it can’t be used again.
-        Access tokens are not stored server-side; they remain valid until expiry.
+        Expected payload:
+            { "refresh": "<refresh_token>" }
       properties:
         refresh:
           type: string
           writeOnly: true
           minLength: 1
+          description: Refresh token JWT à blacklister.
       required:
       - refresh
-    PaginatedCommentAdminListList:
+    PaginatedCommentListList:
       type: object
       required:
       - count
@@ -2024,7 +2131,7 @@ components:
         results:
           type: array
           items:
-            $ref: '#/components/schemas/CommentAdminList'
+            $ref: '#/components/schemas/CommentList'
     PaginatedCommentSummaryList:
       type: object
       required:
@@ -2250,10 +2357,8 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash it:
-          - on create: via UserManager.create_user()
-          - on update: via instance.set_password()
-        - Enforce birth_date rules at the API boundary
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
       properties:
         username:
           type: string
@@ -2534,10 +2639,8 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash it:
-          - on create: via UserManager.create_user()
-          - on update: via instance.set_password()
-        - Enforce birth_date rules at the API boundary
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
       properties:
         id:
           type: integer
@@ -2694,10 +2797,8 @@ components:
         Base serializer for creating/updating a user.
 
         Responsibilities:
-        - Accept plaintext password (write-only) and hash it:
-          - on create: via UserManager.create_user()
-          - on update: via instance.set_password()
-        - Enforce birth_date rules at the API boundary
+        - Accept plaintext password (write-only) and hash via set_password()
+        - Enforce birth_date business rules at the API boundary
       properties:
         username:
           type: string
@@ -2737,6 +2838,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
     jwtAuth:
       type: http
       scheme: bearer

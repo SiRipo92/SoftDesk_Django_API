@@ -143,6 +143,12 @@ class UserModelTests(APITestCase):
 
 class UserSerializerTests(APITestCase):
     def setUp(self) -> None:
+        """
+        Prepare a valid payload used across UserSerializer creation tests.
+
+        birth_date is generated via years_ago() to avoid hard-coding
+        a date that could become invalid due to validator changes.
+        """
         self.valid_data = {
             "username": "newuser",
             "email": "new@example.com",
@@ -151,6 +157,7 @@ class UserSerializerTests(APITestCase):
         }
 
     def test_user_serializer_creates_user(self) -> None:
+        """Serializer.save() should create a User instance with the given fields."""
         serializer = UserSerializer(data=self.valid_data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
         user = serializer.save()
@@ -160,6 +167,7 @@ class UserSerializerTests(APITestCase):
         self.assertTrue(user.check_password(self.valid_data["password"]))
 
     def test_user_serializer_rejects_invalid_birth_date(self) -> None:
+        """Serializer should reject birth_date values that fail min-age validation."""
         # Too recent -> should fail the min-age validator.
         invalid_data = self.valid_data.copy()
         invalid_data["birth_date"] = years_ago(1).isoformat()
@@ -169,6 +177,7 @@ class UserSerializerTests(APITestCase):
         self.assertIn("birth_date", serializer.errors)
 
     def test_user_serializer_hashes_password_on_create(self) -> None:
+        """Password must be hashed on create (stored value differs from input)."""
         serializer = UserSerializer(data=self.valid_data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -179,6 +188,13 @@ class UserSerializerTests(APITestCase):
 
 class UserSerializerProjectSummaryTests(APITestCase):
     def setUp(self) -> None:
+        """
+        Create a user and a project to validate the project preview serializer.
+
+        The setup ensures:
+        - a Project exists
+        - the user is linked via Contributor (membership row)
+        """
         self.user = create_user(username="user", email="user@example.com")
         self.project = Project.objects.create(
             name="Test Project",
@@ -193,6 +209,11 @@ class UserSerializerProjectSummaryTests(APITestCase):
         )
 
     def test_project_summary_serializer(self) -> None:
+        """
+        Project preview serializer should expose stable fields plus issues_count.
+
+        issues_count is annotated at query time and must appear in the payload.
+        """
         project = (
             Project.objects.filter(id=self.project.id)
             .select_related("author")
@@ -212,6 +233,7 @@ class UserSerializerProjectSummaryTests(APITestCase):
 
 class UserSerializerEdgeCaseTests(APITestCase):
     def test_create_user_without_password_raises_error(self) -> None:
+        """Creating a user without a password should fail serializer validation."""
         data = {
             "username": "user",
             "email": "user@example.com",
@@ -224,11 +246,6 @@ class UserSerializerEdgeCaseTests(APITestCase):
     def test_update_user_rejects_invalid_birth_date(self) -> None:
         """
         Updating birth_date should also be validated.
-
-        Note:
-        - This test checks the update path specifically.
-        - If you consider it redundant with the create validation test above,
-          you can remove it to shorten the suite.
         """
         user = create_user(username="user", email="user@example.com")
 
@@ -248,18 +265,25 @@ class UserSerializerEdgeCaseTests(APITestCase):
 
 class IsSelfOrAdminPermissionTests(APITestCase):
     def setUp(self) -> None:
+        """
+        Create a permission instance and two users for object-permission checks.
+
+        This suite verifies IsSelfOrAdmin.has_object_permission() only.
+        """
         self.permission = IsSelfOrAdmin()
         self.factory = RequestFactory()
         self.user = create_user(username="user", email="user@example.com")
         self.admin = create_admin()
 
     def test_user_can_access_own_object(self) -> None:
+        """A user should pass object permission checks on their own profile."""
         request = self.factory.get("/")
         request.user = self.user
 
         self.assertTrue(self.permission.has_object_permission(request, None, self.user))
 
     def test_user_cannot_access_other_object(self) -> None:
+        """A non-staff user should fail object permission checks for other users."""
         other_user = create_user(username="other", email="other@example.com")
 
         request = self.factory.get("/")
@@ -270,6 +294,7 @@ class IsSelfOrAdminPermissionTests(APITestCase):
         )
 
     def test_admin_can_access_any_object(self) -> None:
+        """A staff user should pass object permission checks for any user object."""
         request = self.factory.get("/")
         request.user = self.admin
 
@@ -283,6 +308,14 @@ class IsSelfOrAdminPermissionTests(APITestCase):
 
 class UserViewSetTests(APITestCase):
     def setUp(self) -> None:
+        """
+        Prepare a DRF request factory and common users for viewset tests.
+
+        Users created:
+        - regular user (self)
+        - other user (used for forbidden access checks)
+        - admin user (used for list access checks)
+        """
         self.factory = APIRequestFactory()
         self.list_url = reverse("users:users-list")
 
@@ -291,6 +324,7 @@ class UserViewSetTests(APITestCase):
         self.admin = create_admin()
 
     def test_admin_can_list_users(self) -> None:
+        """Admin should be able to list users and receive annotated list fields."""
         request = self.factory.get(self.list_url)
         force_authenticate(request, user=self.admin)
 
@@ -304,6 +338,7 @@ class UserViewSetTests(APITestCase):
         self.assertIn("projects_count", results[0])
 
     def test_non_admin_cannot_list_users(self) -> None:
+        """Non-admin users must be forbidden from accessing the users list."""
         request = self.factory.get(self.list_url)
         force_authenticate(request, user=self.user)
 
@@ -313,6 +348,7 @@ class UserViewSetTests(APITestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_user_can_retrieve_self(self) -> None:
+        """A user should be able to retrieve their own detail payload."""
         url = reverse("users:users-detail", kwargs={"pk": self.user.id})
         request = self.factory.get(url)
         force_authenticate(request, user=self.user)
@@ -328,6 +364,7 @@ class UserViewSetTests(APITestCase):
         self.assertEqual(response.data["contributed_projects_preview"], [])
 
     def test_non_admin_cannot_retrieve_other_user(self) -> None:
+        """A non-admin user must be forbidden from retrieving another user's profile."""
         url = reverse("users:users-detail", kwargs={"pk": self.other_user.id})
         request = self.factory.get(url)
         force_authenticate(request, user=self.user)
@@ -335,10 +372,11 @@ class UserViewSetTests(APITestCase):
         view = UserViewSet.as_view({"get": "retrieve"})
         response = view(request, pk=self.other_user.id)
 
-        # Non-admin queryset hides other users -> 404
-        self.assertEqual(response.status_code, 404)
+        # Non-admin queryset hides other users -> 403
+        self.assertEqual(response.status_code, 403)
 
     def test_user_can_delete_self(self) -> None:
+        """A user should be able to delete their own account."""
         url = reverse("users:users-detail", kwargs={"pk": self.user.id})
         request = self.factory.delete(url)
         force_authenticate(request, user=self.user)

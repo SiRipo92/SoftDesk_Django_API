@@ -168,7 +168,7 @@ def create_project_minimal(*, author: User) -> Project:
             continue
 
         if isinstance(field, models.ForeignKey):
-            # Only required FK here should be author (already set)
+            # Only required FK here should be from the author (already set)
             continue
 
         if isinstance(field, models.CharField):
@@ -558,7 +558,7 @@ class CommentViewSetTests(APITestCase):
 
     def test_post_not_exposed_on_comments_root(self) -> None:
         """
-        POST /comments/ is not exposed on the global comments endpoint.
+        POST /comments/ is not exposed on the global /comments endpoint.
 
         Comment creation is intentionally handled via the nested route:
         POST /issues/{issue_id}/comments/

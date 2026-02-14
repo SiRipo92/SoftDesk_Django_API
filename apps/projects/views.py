@@ -63,37 +63,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet[Project]:
         """
-        Return projects visible to the current user.
+        Project visibility rules:
 
-        Rules:
-        - staff: all projects
-        - non-staff:
-            - list: only owned projects (author=request.user)
-            - detail/nested: owned OR contributor
+        - Staff: may access all projects.
+        - Non-staff:
+          * LIST: only projects where the user is author OR contributor.
+          * DETAIL/NESTED: unfiltered so forbidden access returns 403.
+
+        Result:
+        - 404 only when the project truly does not exist.
+        - 403 when it exists but the user is not allowed.
         """
-        user = self.request.user
+        if getattr(self, "swagger_fake_view", False):
+            return Project.objects.all()
 
+        user = self.request.user
         if not getattr(user, "is_authenticated", False):
             return Project.objects.none()
 
-        qs: QuerySet[Project] = Project.objects.all()
-
-        action_name = getattr(self, "action", None)
-
-        if not getattr(user, "is_staff", False):
-            if action_name == "list":
-                qs = qs.filter(author=user)
-            else:
-                is_member_qs = Contributor.objects.filter(
-                    project_id=OuterRef("pk"),
-                    user=user,
-                )
-                qs = qs.annotate(_is_member=Exists(is_member_qs)).filter(
-                    Q(author=user) | Q(_is_member=True)
-                )
-
-        qs = (
-            qs.select_related("author")
+        qs: QuerySet[Project] = (
+            Project.objects.select_related("author")
             .annotate(
                 contributors_count=Count(
                     "memberships",
@@ -105,6 +94,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
             .order_by("-updated_at")
         )
 
+        if getattr(user, "is_staff", False):
+            return qs
+
+        if getattr(self, "action", None) == "list":
+            is_member = Contributor.objects.filter(project_id=OuterRef("pk"), user=user)
+            return qs.annotate(_is_member=Exists(is_member)).filter(
+                Q(author=user) | Q(_is_member=True)
+            )
+
+        # retrieve + nested actions: permissions decide (-> 403 if forbidden)
         return qs
 
     # ------------------------------------------------------------------

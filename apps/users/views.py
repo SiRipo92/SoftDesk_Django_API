@@ -67,33 +67,30 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet[User]:
         """
-        Scope the queryset and annotate summary counters.
+        Return the queryset used by DRF to resolve User objects.
 
-        Visibility:
-        - staff: all users
-        - non-staff: only the authenticated user's record
+        DRF fetches the object from this queryset before running object permissions.
+        If the target user is filtered out here, DRF returns 404 and IsSelfOrAdmin
+        never runs. To return 403 for “exists but forbidden”, keep all users in the
+        queryset for detail actions and enforce access via IsSelfOrAdmin.
 
         Annotations:
-        - list: projects_count (admin overview)
+        - list: projects_count
         - detail: num_projects_owned, num_projects_added_as_contrib
         """
-        request_user = self.request.user
-
-        if not request_user.is_authenticated:
-            return User.objects.none()
-
-        base_qs = (
-            User.objects.all()
-            if request_user.is_staff
-            else User.objects.filter(id=request_user.id)
-        )
-
         if self.action == "list":
-            return base_qs.annotate(
-                projects_count=Count("contributed_projects"),
-            ).order_by("id")
+            # Admin-only list
+            return (
+                User.objects.all()
+                .annotate(
+                    projects_count=Count("contributed_projects"),
+                )
+                .order_by("id")
+            )
 
-        return base_qs.annotate(
+            # Detail-like actions: do NOT filter to self, otherwise DRF returns 404
+            # before IsSelfOrAdmin can produce a 403.
+        return User.objects.all().annotate(
             num_projects_owned=Count("owned_projects"),
             num_projects_added_as_contrib=Count(
                 "project_memberships",

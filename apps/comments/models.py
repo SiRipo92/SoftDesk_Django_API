@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.issues.models import Issue
+
+if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
+    from django.db.models.manager import Manager
 
 
 class Comment(models.Model):
@@ -40,6 +45,18 @@ class Comment(models.Model):
         related_name="comments_created",
     )
 
+    if TYPE_CHECKING:
+        # Default manager injected by Django (for Comment.objects)
+        objects: Manager[Comment]
+
+        # Instance attributes (runtime objects, not Field descriptors)
+        issue: Issue
+        author: AbstractBaseUser
+
+        # Implicit FK id columns created by Django
+        issue_id: int | None
+        author_id: int | None
+
     def clean(self) -> None:
         """
         Validate cross-field business rules.
@@ -53,6 +70,9 @@ class Comment(models.Model):
         if self.issue_id is None or self.author_id is None:
             return
 
+        # With the TYPE_CHECKING annotations above, the type checker now knows:
+        # - self.issue is an Issue instance (not a ForeignKey descriptor)
+        # - self.issue.project is a Project instance at runtime
         project = self.issue.project
         author = self.author
 

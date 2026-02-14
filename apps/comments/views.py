@@ -22,7 +22,7 @@ from rest_framework import mixins, permissions, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.serializers import BaseSerializer
 
-from common.permissions import IsCommentAuthorOrStaff
+from common.permissions import IsCommentAuthorOrStaff, IsProjectContributor
 
 from .models import Comment
 from .serializers import (
@@ -61,8 +61,10 @@ class CommentViewSet(
 
         Rules:
         - swagger_fake_view: return lightweight queryset for schema generation.
-        - staff: all comments (global audit use-case)
-        - non-staff: only comments authored by the user
+        - staff: all comments
+        - non-staff:
+            - list: only comments authored by the user
+            - detail routes: unfiltered; permissions decide (403 vs 404)
         """
 
         # drf-spectacular may call get_queryset() while generating the OpenAPI schema.
@@ -80,23 +82,32 @@ class CommentViewSet(
         if getattr(user, "is_staff", False):
             return qs
 
-        return qs.filter(author=user)
+        if self.action == "list":
+            return qs.filter(author=user)
+
+        return qs
 
     def get_permissions(self) -> list[BasePermission]:
         """
         Return permission instances based on the current action.
 
         - list: authenticated
-        - retrieve/update/partial_update/destroy: authenticated + author-or-staff
-        - fallback: authenticated
+        - retrieve: authenticated + project contributor (or staff)
+        - update/partial_update/destroy: authenticated + contributor + author-or-staff
         """
         # Authenticated users can list their own comments
         if self.action == "list":
             return [permissions.IsAuthenticated()]
 
-        # Only author or staff can retrieve/update/delete a specific comment
-        if self.action in ("retrieve", "update", "partial_update", "destroy"):
-            return [permissions.IsAuthenticated(), IsCommentAuthorOrStaff()]
+        if self.action == "retrieve":
+            return [permissions.IsAuthenticated(), IsProjectContributor()]
+
+        if self.action in ("update", "partial_update", "destroy"):
+            return [
+                permissions.IsAuthenticated(),
+                IsProjectContributor(),
+                IsCommentAuthorOrStaff(),
+            ]
 
         return [permissions.IsAuthenticated()]
 

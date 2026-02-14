@@ -11,7 +11,9 @@ Business rule (double lock):
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable
+from datetime import date
+from typing import TYPE_CHECKING
 
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -49,6 +51,11 @@ class User(AbstractUser):
     # Used by createsuperuser flow (Django management command), not by DRF.
     REQUIRED_FIELDS: list[str] = ["email", "birth_date"]
 
+    if TYPE_CHECKING:
+        # Tell the type checker what Django provides at runtime on instances.
+        email: str
+        birth_date: date
+
     @property
     def age(self) -> int | None:
         """
@@ -77,7 +84,13 @@ class User(AbstractUser):
         except ValueError as exc:
             raise ValidationError({"birth_date": str(exc)}) from exc
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
+    def save(
+        self,
+        force_insert: bool = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
         """
         Ensure model validation always runs on save().
 
@@ -88,4 +101,13 @@ class User(AbstractUser):
         - any internal code path that saves a User
         """
         self.full_clean()
-        return super().save(*args, **kwargs)
+        super().save(
+            # Force INSERT only (fail if row already exists)
+            force_insert=force_insert,
+            # Force UPDATE only (fail if row doesn't exist yet)
+            force_update=force_update,
+            # DB alias to write to (multi-db); None = default routing
+            using=using,
+            # Only update these fields (partial update optimization)
+            update_fields=update_fields,
+        )
