@@ -11,9 +11,9 @@ Business rule (double lock):
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from typing import TYPE_CHECKING
-from collections.abc import Iterable
 
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError

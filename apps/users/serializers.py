@@ -23,6 +23,7 @@ from rest_framework import serializers
 
 from apps.projects.models import Project
 from common.validators import validate_birth_date_min_age
+
 from .models import User
 
 

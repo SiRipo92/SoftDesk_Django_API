@@ -17,10 +17,9 @@ from django.db import IntegrityError
 from rest_framework import serializers
 
 from apps.comments.serializers import CommentSummarySerializer
-
-from .models import Issue, IssueAssignee
 from apps.users.models import User
 
+from .models import Issue, IssueAssignee
 
 # -------------------------------------------------------------------
 # Shared constants

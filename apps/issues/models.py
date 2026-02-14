@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     # typing-only import (no runtime import cycles)
     from django.contrib.auth.base_user import AbstractBaseUser
     from django.db.models.manager import Manager
+
     from apps.comments.models import Comment
 
 # --------------------------------------------------
@@ -114,15 +115,15 @@ class Issue(models.Model):
     if TYPE_CHECKING:
         # Instance attributes (runtime objects, not Field descriptors)
         project: Project
-        author: "AbstractBaseUser"
+        author: AbstractBaseUser
 
         # Implicit FK id columns created by Django
         project_id: int | None
         author_id: int | None
 
         # Reverse relations (managers) created by related_name=
-        assignee_links: "models.Manager[IssueAssignee]"
-        comments: "models.Manager[Comment]"
+        assignee_links: models.Manager[IssueAssignee]
+        comments: models.Manager[Comment]
 
     def clean(self) -> None:
         """
@@ -203,7 +204,7 @@ class IssueAssignee(models.Model):
 
     if TYPE_CHECKING:
         # Default manager injected by Django (for IssueAssignee.objects)
-        objects: "Manager[IssueAssignee]"
+        objects: Manager[IssueAssignee]
 
         # Implicit FK id columns created by Django
         issue_id: int

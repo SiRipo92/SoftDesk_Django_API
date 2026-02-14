@@ -65,21 +65,22 @@ class Project(models.Model):
 
     if TYPE_CHECKING:
         # Default manager injected by Django
-        objects: "Manager[Project]"
+        objects: Manager[Project]
 
         # FK id column injected by Django
         author_id: int
 
-        # Runtime accessor for M2M is a manager-like object (supports .filter(), .exists(), etc.)
-        contributors: "Manager[User]"
+        # Runtime accessor for M2M is a manager-like
+        # object (supports .filter(), .exists(), etc.)
+        contributors: Manager[User]
 
         # Reverse relation from Contributor.project (related_name="memberships")
-        memberships: "Manager[Contributor]"
+        memberships: Manager[Contributor]
 
         # Reverse relation from Issue.project (related_name="issues")
-        issues: "Manager[Issue]"
+        issues: Manager[Issue]
 
-    def is_contributor(self, user: "AbstractBaseUser | None") -> bool:
+    def is_contributor(self, user: AbstractBaseUser | None) -> bool:
         """Return True if the user is a contributor on this project."""
         if not user or not getattr(user, "pk", None):
             return False
@@ -131,7 +132,7 @@ class Contributor(models.Model):
 
     if TYPE_CHECKING:
         # Default manager injected by Django (for Contributor.objects)
-        objects: "Manager[Contributor]"
+        objects: Manager[Contributor]
 
         # Implicit FK id columns created by Django
         user_id: int

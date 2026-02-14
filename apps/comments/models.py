@@ -10,8 +10,8 @@ from django.db import models
 from apps.issues.models import Issue
 
 if TYPE_CHECKING:
-    from django.db.models.manager import Manager
     from django.contrib.auth.base_user import AbstractBaseUser
+    from django.db.models.manager import Manager
 
 
 class Comment(models.Model):
@@ -47,7 +47,7 @@ class Comment(models.Model):
 
     if TYPE_CHECKING:
         # Default manager injected by Django (for Comment.objects)
-        objects: "Manager[Comment]"
+        objects: Manager[Comment]
 
         # Instance attributes (runtime objects, not Field descriptors)
         issue: Issue
