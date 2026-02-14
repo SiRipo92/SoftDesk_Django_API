@@ -57,7 +57,7 @@ class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True, allow_blank=False)
     password = serializers.CharField(
         write_only=True,
-        required=False,  # keep optional for update
+        required=False,
         allow_blank=False,
         min_length=8,
         help_text="Plaintext password (write-only). Hashed before saving.",

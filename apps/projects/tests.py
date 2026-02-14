@@ -416,8 +416,11 @@ class ProjectViewSetTests(APITestCase):
     # /projects/ list/create
     # -------------------------
 
-    def test_list_non_staff_returns_only_owned_projects(self) -> None:
-        """Non-staff users only see projects they own in the /projects/ list."""
+    def test_list_non_staff_returns_owned_and_contributed_projects(self) -> None:
+        """
+        Non-staff users see projects they own OR where they are contributors
+        in the /projects/ list.
+        """
         self.client.force_authenticate(user=self.owner)
 
         url = api_reverse("projects-list")
@@ -426,8 +429,13 @@ class ProjectViewSetTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         ids = {row["id"] for row in extract_results(resp.data)}
 
+        # owned project is visible
         self.assertIn(self.p_owned.id, ids)
-        self.assertNotIn(self.p_contrib.id, ids)
+
+        # contributed project is also visible (desired behavior)
+        self.assertIn(self.p_contrib.id, ids)
+
+        # unrelated project remains hidden
         self.assertNotIn(self.p_hidden.id, ids)
 
     def test_list_staff_returns_all_projects(self) -> None:
