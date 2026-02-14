@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from apps.issues.models import Issue
     from apps.users.models import User
 
+
 class ProjectType(models.TextChoices):
     """Allowed values for a project's type/category."""
 

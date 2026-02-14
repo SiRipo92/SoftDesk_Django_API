@@ -195,8 +195,7 @@ class UserDetailSerializer(UserSerializer):
             .annotate(issues_count=Count("issues", distinct=True))
             .order_by("-updated_at")[:5]
         )
-        serializer = UserProjectPreviewSerializer(
-            qs, many=True, context=self.context)
+        serializer = UserProjectPreviewSerializer(qs, many=True, context=self.context)
         return [dict(item) for item in serializer.data]
 
     @extend_schema_field(UserProjectPreviewSerializer(many=True))

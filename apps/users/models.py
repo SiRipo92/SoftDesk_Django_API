@@ -85,11 +85,11 @@ class User(AbstractUser):
             raise ValidationError({"birth_date": str(exc)}) from exc
 
     def save(
-            self,
-            force_insert: bool = False,
-            force_update: bool = False,
-            using: str | None = None,
-            update_fields: Iterable[str] | None = None,
+        self,
+        force_insert: bool = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
     ) -> None:
         """
         Ensure model validation always runs on save().
