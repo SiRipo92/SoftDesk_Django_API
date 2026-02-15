@@ -82,9 +82,19 @@ class Project(models.Model):
         issues: Manager[Issue]
 
     def is_contributor(self, user: AbstractBaseUser | None) -> bool:
-        """Return True if the user is a contributor on this project."""
+        """
+        Return True if the user is allowed as a project member.
+
+        Business meaning (per specs):
+        - The project author is always a member.
+        - Otherwise, membership comes from Contributor join rows (added contributors).
+        """
         if not user or not getattr(user, "pk", None):
             return False
+        # Author is always considered a member/contributor of their own project.
+        if user.pk == self.author_id:
+            return True
+
         contributors_manager = cast(Any, self.contributors)
         return contributors_manager.filter(pk=user.pk).exists()
 
