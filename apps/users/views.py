@@ -83,7 +83,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return (
                 User.objects.all()
                 .annotate(
-                    projects_count=Count("contributed_projects"),
+                    projects_count=Count("contributed_projects", distinct=True),
                 )
                 .order_by("id")
             )
@@ -91,9 +91,10 @@ class UserViewSet(viewsets.ModelViewSet):
             # Detail-like actions: do NOT filter to self, otherwise DRF returns 404
             # before IsSelfOrAdmin can produce a 403.
         return User.objects.all().annotate(
-            num_projects_owned=Count("owned_projects"),
+            num_projects_owned=Count("owned_projects", distinct=True),
             num_projects_added_as_contrib=Count(
                 "project_memberships",
+                distinct=True,
                 filter=~Q(project_memberships__project__author_id=F("id")),
             ),
         )
