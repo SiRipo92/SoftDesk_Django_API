@@ -18,7 +18,6 @@ media/
 # Tests / tools
 .pytest_cache/
 .coverage
-htmlcov/
 .ruff_cache/
 
 # IDE
